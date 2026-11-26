@@ -76,17 +76,18 @@ describe('ANSI output', () => {
 
 describe('keymap', () => {
   test('keys follow the keyboard rows', () => {
-    assert.deepEqual(pileForKey('`'), { kind: 'stock' });
-    assert.deepEqual(pileForKey('1'), pile.waste);
-    assert.deepEqual(pileForKey('q'), pile.tableau(0));
-    assert.deepEqual(pileForKey('U'), pile.tableau(6));
-    assert.deepEqual(pileForKey('f5'), pile.foundation(0));
-    assert.deepEqual(pileForKey('f8'), pile.foundation(3));
-    assert.deepEqual(pileForKey('f9'), { kind: 'auto-foundation' });
-    assert.equal(pileForKey('f1'), undefined);
-    assert.equal(keyLabel({ kind: 'auto-foundation' }), 'F9');
-    assert.equal(pileForKey('2'), undefined);
-    assert.equal(keyLabel(pile.foundation(0)), 'F5');
+    // The top letter row for the board's top row, the home row for the columns straight below.
+    assert.deepEqual(pileForKey('q'), { kind: 'stock' });
+    assert.deepEqual(pileForKey('w'), pile.waste);
+    assert.equal(pileForKey('e'), undefined); // over column 3, where the top row has a gap
+    assert.deepEqual(pileForKey('r'), pile.foundation(0));
+    assert.deepEqual(pileForKey('u'), pile.foundation(3));
+    assert.deepEqual(pileForKey('i'), { kind: 'auto-foundation' });
+    assert.deepEqual(pileForKey('a'), pile.tableau(0));
+    assert.deepEqual(pileForKey('J'), pile.tableau(6));
+    for (const gone of ['`', '~', '1', 'f5', 'f9', 'k']) assert.equal(pileForKey(gone), undefined, gone);
+    assert.equal(keyLabel({ kind: 'auto-foundation' }), 'i');
+    assert.equal(keyLabel(pile.foundation(0)), 'r');
   });
 });
 
@@ -99,17 +100,17 @@ describe('layout', () => {
   });
 
   test('hotkeys sit above their piles', () => {
-    // Large cards: one-character keys are fullwidth, F5-F8 stay as they are (already two cells).
+    // Large cards: keys are fullwidth, as big as the ranks.
     const buf = renderKlondike(deal(11), view);
-    assert.equal(cells(buf, colX(0) + 2, 2, 2), '～');
-    assert.equal(cells(buf, colX(1) + 2, 2, 2), '１');
-    assert.equal(cells(buf, colX(3) + 2, 2, 2), 'F5');
-    assert.equal(cells(buf, colX(6) + 2, 2, 2), 'F8');
-    assert.equal([0, 1, 2, 3, 4, 5, 6].map((i) => cells(buf, colX(i) + 2, 5, 2)).join(''), 'ｑｗｅｒｔｙｕ');
+    assert.equal(cells(buf, colX(0) + 2, 2, 2), 'ｑ');
+    assert.equal(cells(buf, colX(1) + 2, 2, 2), 'ｗ');
+    assert.equal(cells(buf, colX(3) + 2, 2, 2), 'ｒ');
+    assert.equal(cells(buf, colX(6) + 2, 2, 2), 'ｕ');
+    assert.equal([0, 1, 2, 3, 4, 5, 6].map((i) => cells(buf, colX(i) + 2, 5, 2)).join(''), 'ａｓｄｆｇｈｊ');
     // Compact cards keep plain keys.
     const small = renderKlondike(deal(11), view, { compact: true }).toText().split('\n');
-    assert.equal(small[5]!.trim().split(/\s+/).join(''), 'qwertyu');
-    assert.equal(small[2]!.trim().split(/\s+/)[0], '~');
+    assert.equal(small[5]!.trim().split(/\s+/).join(''), 'asdfghj');
+    assert.equal(small[2]!.trim().split(/\s+/).join(''), 'qwrtyu');
   });
 
   test('draws each card as one row: fullwidth ranks, emoji suits, ten as plain 10', () => {
@@ -135,7 +136,7 @@ describe('layout', () => {
     assert.equal(cells(buf, cx(1), 6, 4), '[K ]');
     assert.equal(cells(buf, cx(3), 3, 16), '[A ]   A♥   [A ]');
     assert.equal(cells(buf, cx(1), 3, 10), ' 3♦ 4♠ 5♥ ');
-    assert.equal(buf.toText().split('\n')[5]!.indexOf('q'), cx(0) + 1);
+    assert.equal(buf.toText().split('\n')[5]!.indexOf('a'), cx(0) + 1);
     assert.doesNotMatch(buf.toText(), /\uFE0F|[Ａ-Ｚ０-９]/u);
   });
 
@@ -234,16 +235,16 @@ describe('layout', () => {
     const sel = renderKlondike(s, { cursor: pile.tableau(0) });
     cardsPlain(sel);
     assert.equal(sel.get(colX(0) + 2, 5).bg, 'cursor');
-    assert.equal(qLabel(sel), 'ｑ'); // no count: how many is worked out on the drop
+    assert.equal(qLabel(sel), 'ａ'); // no count: how many is worked out on the drop
 
     const held = renderKlondike(s, { cursor: pile.tableau(0), held: { from: pile.waste } });
     cardsPlain(held);
-    assert.equal(held.get(colX(1) + 2, 2).bg, 'hold'); // 1, the waste
+    assert.equal(held.get(colX(1) + 2, 2).bg, 'hold'); // w, the waste
     assert.equal(held.get(colX(0) + 2, 5).bg, 'cursor'); // the cursor still shows the target
 
     const own = renderKlondike(s, { cursor: pile.tableau(0), held: { from: pile.tableau(0) } });
     assert.equal(own.get(colX(0) + 2, 5).bg, 'hold');
-    assert.equal(qLabel(own), 'ｑ');
+    assert.equal(qLabel(own), 'ａ');
 
     // The cursor can sit on a foundation, and its quiet label lights up.
     const onF = renderKlondike(s, { cursor: pile.foundation(1) });
@@ -272,20 +273,21 @@ describe('layout', () => {
     assert.equal(buf.get(colX(1) + 14, 3).bg, 'card');
   });
 
-  test('status bar promotes F9 and fits the minimum width', () => {
+  test('status bar promotes i and fits the minimum width', () => {
     const buf = renderKlondike(deal(1), view);
     const lines = buf.toText().split('\n');
     const status = lines.slice(-2);
-    assert.match(status[0]!, /F9 to foundation/);
-    assert.doesNotMatch(status.join('\n'), /F5|F8/);
-    assert.equal(buf.get(colX(3) + 2, 2).fg, 'dim'); // F5 label is quiet
+    assert.match(status[0]!, /i to foundation/);
+    assert.match(status[1]!, /esc menu/);
+    assert.doesNotMatch(status.join('\n'), /\br\b|\bu\b/);
+    assert.equal(buf.get(colX(3) + 2, 2).fg, 'dim'); // the r label is quiet
     for (const line of status) assert.ok(line.length <= MIN_WIDTH, `too wide: "${line}"`);
   });
 
   test('the board is centred in wider terminals', () => {
     const buf = renderKlondike(deal(1), view, { width: 100 });
     assert.equal(buf.width, 100);
-    assert.equal(buf.get(Math.floor((100 - BOARD_WIDTH) / 2) + 2, 5).ch, 'ｑ');
+    assert.equal(buf.get(Math.floor((100 - BOARD_WIDTH) / 2) + 2, 5).ch, 'ａ');
   });
 });
 
@@ -375,13 +377,13 @@ describe('cards and dialogs', () => {
 
   test('labels are centred over their cards, large and compact', () => {
     const big = renderKlondike(deal(1), view);
-    assert.equal(cells(big, colX(0), 2, 6), '  ～  ');
-    assert.equal(cells(big, colX(3), 2, 6), '  F5  ');
-    assert.equal(cells(big, colX(6), 5, 6), '  ｕ  ');
+    assert.equal(cells(big, colX(0), 2, 6), '  ｑ  ');
+    assert.equal(cells(big, colX(3), 2, 6), '  ｒ  ');
+    assert.equal(cells(big, colX(6), 5, 6), '  ｊ  ');
     const small = renderKlondike(deal(1), view, { compact: true });
     const cx = (i: number) => Math.floor((MIN_WIDTH - COMPACT.board) / 2) + i * COMPACT.pitch;
-    assert.equal(cells(small, cx(0), 2, 4), ' ~  ');
-    assert.equal(cells(small, cx(3), 2, 4), ' F5 ');
+    assert.equal(cells(small, cx(0), 2, 4), ' q  ');
+    assert.equal(cells(small, cx(3), 2, 4), ' r  ');
   });
 
   test('truecolor only when the terminal says so', () => {
@@ -391,22 +393,27 @@ describe('cards and dialogs', () => {
   });
 
   test('a dialog is a box over the board with its title, text and choices', () => {
-    const dialog = { title: 'Restart this deal?', lines: ['Every move so far will be undone.'], choices: [['y', 'restart'], ['esc', 'keep playing']] as const };
+    const dialog = { title: 'Restart this deal?', lines: ['Every move so far will be undone.'], choices: ['Restart', 'Keep playing'], selected: 0 };
     const lines = renderKlondike(deal(1), { ...view, dialog }).toText().split('\n');
     const top = lines.findIndex((l) => l.includes('Restart this deal?'));
     assert.ok(top > 0);
     assert.match(lines[top]!, /╭─ Restart this deal\? ─+╮/);
     assert.match(lines[top + 1]!, /│ Every move so far will be undone\. +│/);
-    assert.match(lines[top + 3]!, /│ y    restart +│/);
-    assert.match(lines[top + 4]!, /│ esc  keep playing +│/);
-    assert.match(lines[top + 5]!, /╰─+╯/);
+    assert.match(lines[top + 3]!, /│ › Restart +│/);
+    assert.match(lines[top + 4]!, /│   Keep playing +│/);
+    assert.match(lines[top + 6]!, /│ ↑↓ choose {2}enter select {2}esc back +│/);
+    assert.match(lines[top + 7]!, /╰─+╯/);
     // The box spans the board exactly, and nothing of the board shows beside or under it.
     const x = colX(0);
-    for (let i = top; i < top + 6; i++) {
+    for (let i = top; i < top + 8; i++) {
       assert.match(lines[i]!.slice(x, x + BOARD_WIDTH), /^[╭│╰].*[╮│╯]$/, `row ${i}`);
       assert.equal(lines[i]!.slice(x + BOARD_WIDTH).trim(), '', `row ${i}`);
     }
-    assert.equal(lines[top + 6]!.trim(), '');
+    assert.equal(lines[top + 8]!.trim(), '');
+    // The highlighted choice is a bar across the box.
+    const buf = renderKlondike(deal(1), { ...view, dialog: { ...dialog, selected: 1 } });
+    assert.equal(buf.get(x + 5, top + 4).bg, 'cursor');
+    assert.equal(buf.get(x + 5, top + 3).bg, 'none');
   });
 });
 
@@ -451,7 +458,7 @@ describe('diff against a virtual terminal', () => {
 
   test('partial redraws always leave the screen matching the latest frame', async () => {
     const { createApp, handleKey, viewOf } = await import('../src/app.ts');
-    const keys = ['`', '1', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'f9', 'f5', 'left', 'right', 'up', 'down', 'space', 'escape', 'z', 'enter'];
+    const keys = ['q', 'w', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'i', 'r', 'left', 'right', 'up', 'down', 'space', 'escape', 'tab', 'z', 'enter'];
     const rng = mulberry32(2024);
     for (let seed = 1; seed <= 6; seed++) {
       // Half the runs on a terminal that draws suits one cell wide, half two.

@@ -9,10 +9,10 @@ can, and your game waits for you whenever you have to go.
 ```
  soliterminal · Klondike · Draw 1      Moves 46  03:41  Win ✓
 
-            ~     1           F5    F6    F7    F8
+            q     w           r     t     y     u
            ░15░   4♦          A♦   [A ]  [A ]  [A ]
             ↺2
-            q     w     e     r     t     y     u
+            a     s     d     f     g     h     j
             K♣   ░░░░   3♣   ░░░░   X♣   ░░░░  ░░░░
             Q♥    8♠         ░░░░        ░░░░  ░░░░
             J♣    7♦         ░░░░        ░░░░  ░░░░
@@ -24,8 +24,8 @@ can, and your game waits for you whenever you have to go.
 
  › Holding column 4. Where does it go?
 ── Draw 1  won 29/42 (69%)  streak 3  longest 7  best 02:52 ──
- ~ draw  1 waste  q-u columns  F9 to foundation
- arrows select  space pick/drop  z undo  ? help  x quit
+ q draw  w waste  a-j columns  i to foundation  z undo
+ arrows select  space pick/drop  tab card size  esc menu
 ```
 
 <sub>Compact cards, as drawn in any terminal; X is a ten. Large cards draw their suits as emoji.</sub>
@@ -41,8 +41,10 @@ moment your agent needs you and pick up again later, exactly where you left it.
 ## Highlights
 
 - **Keys where the piles are.** The key above each pile is the key in the same
-  place on your keyboard: `~` for the stock, `1` for the waste, `q` to `u` for
-  the seven columns, `F5` to `F8` for the foundations. Arrow keys work too.
+  place on your keyboard: the top letter row for the top of the board (`q` the
+  stock, `w` the waste, `r` to `u` the foundations) and the home row for the
+  seven columns (`a` to `j`). No function keys, so it works the same in any
+  terminal, laptop or editor. Arrow keys work too.
 - **Every deal can be won.** The solver proves each new deal winnable before
   you see it.
 - **It tells you when you have lost.** The header shows, move by move, whether
@@ -87,20 +89,26 @@ turns over once it is uncovered. When you are stuck, draw from the stock.
 ### Moving cards
 
 Press the key of the pile the cards come **from**, then the key of the pile they
-go **to**. `r` then `t` moves cards from column 4 onto column 5; how many is
-worked out from where they land. Press the same key twice (`r` `r`) and they go
+go **to**. `f` then `g` moves cards from column 4 onto column 5; how many is
+worked out from where they land. Press the same key twice (`f` `f`) and they go
 to the best spot, a foundation if they can.
 
 | Key | Pile |
 |---|---|
-| `~` (or `` ` ``, the same key) | Draw from the stock. When it is empty, turn the waste over (a redeal) |
-| `1` | The waste |
-| `q` `w` `e` `r` `t` `y` `u` | Columns 1 to 7 |
-| `F9` | The right foundation for the card: the usual way to send a card home |
-| `F5` `F6` `F7` `F8` | One particular foundation |
+| `q` | Draw from the stock. When it is empty, turn the waste over (a redeal) |
+| `w` | The waste |
+| `a` `s` `d` `f` `g` `h` `j` | Columns 1 to 7 |
+| `i` | The right foundation for the card: the usual way to send a card home |
+| `r` `t` `y` `u` | One particular foundation |
 
-Foundations are not tied to a suit: an ace starts any empty one, and `F9` picks
-for you. When every card is face up, the game plays itself out.
+Each key sits straight above or below its pile's neighbours: `q` over `a`, `w`
+over `s`, `r` over `f`, and so on. `e` is over column 3, where the top row has
+a gap, so it does nothing. Foundations are not tied to a suit: an ace starts
+any empty one, and `i` picks for you. When every card is face up, the game
+plays itself out.
+
+The keys follow the US (QWERTY) layout. On other layouts they are the same
+letters in other places; the arrow keys work everywhere.
 
 ### The cursor
 
@@ -109,26 +117,35 @@ If you would rather point than press pile keys:
 | Key | Action |
 |---|---|
 | `←` `→` | Move along the row |
-| `↑` `↓` | Move to the pile straight above or below (`q`↔stock, `w` and `e`↔waste, `r` to `u`↔foundations) |
+| `↑` `↓` | Move to the pile straight above or below (column 1↔stock, columns 2 and 3↔waste, columns 4 to 7↔foundations) |
 | `↓` in a column | Choose how many cards to move: the cursor goes onto the top card of the run (say a K), then one card further down each press (Q, J, …). The chosen card is tinted, and it moves with every card below it. `↑` goes back |
 | `Space` | Pick up or put down at the cursor. On the stock, draw |
 | `Enter` | Send the cursor's cards to the best spot |
-| `Esc` | Put held cards back. With nothing held, switch large and compact cards |
+| `Esc` | Put held cards back. With nothing held, open the menu |
 
-### Everything else
+### Keys and the menu
 
 | Key | Action |
 |---|---|
-| `z` | Undo, as far back as the deal |
-| `h` | Hint, once you are stuck (see [Hints](#hints)) |
-| `n` | New deal (asks first if a game is under way) |
-| `F2` | Start this deal over (asks first; not once it is won) |
-| `g` | Choose a deal: type a seed, or pick one of your games |
-| `d` | Draw 1 or Draw 3: at once on an untouched deal, otherwise from the next one |
-| `s` | Statistics |
+| `z` | Undo, as far back as the deal (`Backspace` too) |
+| `Tab` | Large or compact cards |
 | `?` | Help |
-| `x` | Quit (asks first; your game is kept) |
-| `Ctrl+C` | Quit at once (your game is still kept) |
+| `Esc` | The menu |
+| `Ctrl+Q` | Quit at once; your game is kept (`Ctrl+C` too) |
+
+Everything else is in the menu. Choose with `↑` `↓` and `Enter` (or `Space`);
+`Esc` backs out. Every other question works the same way.
+
+| Menu | Action |
+|---|---|
+| New game | A new deal (asks first if a game is under way: giving it up is a loss) |
+| Restart this deal | Start over (asks first; not once it is won) |
+| Switch to Draw 3 / Draw 1 | At once on an untouched deal, otherwise from the next one |
+| Hint | Once you are stuck (see [Hints](#hints)) |
+| Play a seed or a recent game | Type a seed, or pick one of your games |
+| Statistics | Your record, per draw mode |
+| Help | The keys |
+| Quit | Your game is kept |
 
 Three redeals are allowed by default (`--redeals` changes it). How many are
 left is always shown under the stock: `↺2`, in red at `↺0`.
@@ -148,10 +165,10 @@ The header always says where you stand:
 | `Win ?` | Not settled yet; a longer look carries on in the background |
 | `Win 0%` | It can no longer be won |
 
-At `Win 0%` you choose: back to the last winnable position (`z`), start the deal
-over (`F2`), a new deal (`n`), quit (`x`), or play on (`Esc`). If the game was
-lost a few moves back, the dialog says how many, and `z` goes back to just
-before them.
+At `Win 0%` you choose: back to the last winnable position (`z` does this
+too), start the deal over, a new deal, or play on (`Esc`). If the game was lost
+a few moves back, the dialog says how many, and going back goes to just before
+them.
 
 ### Warnings
 
@@ -168,9 +185,9 @@ so a mistake made once is caught instantly the next time.
 
 The solver sees the face-down cards, so it may know of a win you cannot see:
 moving part of a run, say, or taking a card back down from a foundation. Go once
-through the whole stock without playing a card (or press `~` with nothing left
-to draw) and the game tells you a move is there; from then on `h` shows the
-solver's next move. Play any card and the hint closes again.
+through the whole stock without playing a card (or press `q` with nothing left
+to draw) and the game tells you a move is there; from then on Hint in the menu
+shows the solver's next move. Play any card and the hint closes again.
 
 ## Your games
 
@@ -185,44 +202,45 @@ agent does not count. Most terminals report focus (kitty, WezTerm, iTerm2,
 Windows Terminal, GNOME Terminal, Konsole); in tmux, turn on
 `set -g focus-events on`. Where focus is never reported, the clock just runs.
 
-If you start a second soliterminal while one is running, it plays a fresh deal
-and leaves the first one's game alone.
+There is one saved game. Start soliterminal in a second window and it picks up
+the same game; whichever window saves last is the one kept. A game finished in
+both windows still counts once.
 
 ### Statistics
 
-Every game is kept with its seed, and the statistics (`s`) are worked out from
-those games, separately for Draw 1 and Draw 3: games played, won, win rate,
-current and longest streak, best time and fewest moves.
+Every game is kept with its seed, and the statistics are worked out from those
+games, separately for Draw 1 and Draw 3: games played, won, win rate, current
+and longest streak, best time and fewest moves.
 
-A game counts from the first card moved; drawing from the stock alone does not
-count. Starting a deal over carries on the same game. Quitting only pauses it,
-but leaving it unfinished for another deal counts as a loss and ends your
-streak.
+A game goes on record when it ends: won, or given up for another deal (a loss,
+which ends your streak). Drawing from the stock alone does not make it a game.
+Starting a deal over carries on the same game, and quitting only pauses it.
+Several windows can play at once: each finished game is added to the record as
+a line of its own, so none overwrites another.
 
 ### Choosing a deal
 
-`g` lists your games, newest first:
+Play a seed or a recent game (in the menu) lists your games, newest first:
 
 ```
  soliterminal · Deals
 
-   Seed                 Draw 1  (d switches)
+   Seed                 Draw 1  (← → switches)
 
    Your games
      Seed        Draw  Result     Time   Moves  Redeals Level   When
-     2902541007  1     playing    01:35     23                  11-26 09:12
    › 707746170   1     lost @86   06:40     86          hard    11-25 15:07
      109483114   1     won        06:52    131    2             11-25 13:40
      46732994    1     gave up    12:10     36          medium  11-25 11:50
      3291647763  3     won        03:05     98    0             11-24 18:03
 
  Type a seed, or choose a game with ↑ ↓. Enter plays it; esc goes back.
- Playing another deal gives up the game in progress.
+ Playing another deal gives up seed 2902541007: it counts as a loss.
 ```
 
 Choose a game with the arrows and press `Enter` to play it again, or type any
-seed (`d` switches the draw mode). A typed seed is not checked first: the header
-tells you once the solver has judged it.
+seed (`←` `→` switch the draw mode). A typed seed is not checked first: the
+header tells you once the solver has judged it.
 
 - **Result.** `lost @86` means the 86th move (counted as in the header) made the
   game unwinnable. `gave up` means it was left while it might still have been
@@ -239,19 +257,20 @@ draw mode. A deal you lost before says so when it comes back, with the date
 
 ### Sharing results
 
-Nothing leaves your computer on its own. When your finished games reach 1,000,
-and again at 2,000, 3,000 and so on, soliterminal asks once, between games,
-whether to send them to open Klondike research data. Say no and it asks again
-at the next thousand; agree then, and every game not sent yet goes. There is no
-way to send smaller batches: a server taking a few games at a time from
-everyone would only be kept busy for nothing.
+Nothing leaves your computer on its own. When your finished games reach 100,
+and again at 200, 300 and so on, soliterminal asks once, between games, whether
+to send them to open Klondike research data. Say no (`Esc`) and it asks again
+at the next hundred; agree (`Enter`) then, and the games not sent yet go, up to
+1,000 at a time. There is no way to send smaller batches: a server taking a
+game at a time from everyone would only be kept busy for nothing.
 
 What is sent for each game: the seed, draw mode, redeal limit, won or lost,
 time, moves, redeals used (wins), the move that lost it and its level (losses),
-and the day it was played. Besides that, a random name for your installation,
-made up on your computer so that a batch sent twice counts once, and the
-soliterminal version. Nothing else: no name, account, address, file paths or
-times of day. The server code is in [`server/`](server/).
+and the day it was played, with a random name for the game. Besides that, a
+random name for your installation, made up on your computer so that a game sent
+twice counts once, and the soliterminal version. Nothing else: no name,
+account, address, file paths or times of day. The server code is in
+[`server/`](https://github.com/dayliver/soliterminal/tree/main/server).
 
 ## Options
 
@@ -265,7 +284,7 @@ soliterminal --draw 3 --theme blue
 | `--redeals N` | Times the waste can be turned over: 0 to 99, or `unlimited` (default 3). Deals are proven winnable under the same limit |
 | `--compact` | Start with compact cards |
 | `--theme NAME` | Color family: `green` (default), `cyan`, `blue`, `magenta`, `yellow`, `red`, `white` |
-| `--seed N` | Play a particular deal (not checked first). Gives up a kept game |
+| `--seed N` | Play a particular deal, 0 to 4294967295 (not checked first). With a game under way kept, asks whether to carry on with it or give it up (a loss) |
 | `--any-deal` | Deal any shuffle, not only winnable ones |
 | `--ascii` | Plain ASCII: no box drawing, suit symbols or emoji |
 | `-h`, `--help` | Show usage |
@@ -274,15 +293,17 @@ soliterminal --draw 3 --theme blue
 |---|---|
 | `SOLITERMINAL_THEME=NAME` | Same as `--theme` (the option wins) |
 | `SOLITERMINAL_CARD=ddd\|fff` | Card face: soft grey-white (default) or pure white |
-| `SOLITERMINAL_STATS=PATH` | Your games and statistics |
+| `SOLITERMINAL_STATS=PATH` | Your games and statistics (a log, one line per game) |
 | `SOLITERMINAL_GAME=PATH` | The game in progress (default `current.json` next to the statistics) |
 | `SOLITERMINAL_SHARE_URL=URL` | Where shared results go, for testing a share server |
 | `COLORTERM=truecolor` | Exact card colors (otherwise the nearest 256-color ones) |
 | `NO_COLOR=1` | No color at all |
 
 Your data lives in `~/.local/state/soliterminal/` (`$XDG_STATE_HOME` if set), or
-in `%LOCALAPPDATA%\soliterminal\` on Windows: `stats.json` holds your games and
-`current.json` the game in progress. Both are plain JSON.
+in `%LOCALAPPDATA%\soliterminal\` on Windows: `games.jsonl` holds your games,
+one JSON line each, `current.json` the game in progress, and `share.json` where
+sharing stands. A `stats.json` from an earlier version is moved into
+`games.jsonl` on first start and left in place.
 
 ## Terminals
 
@@ -290,7 +311,7 @@ in `%LOCALAPPDATA%\soliterminal\` on Windows: `stats.json` holds your games and
   fold into one row when space runs short.
 - **Large cards** draw their suits as emoji, which needs a terminal and font
   that render emoji, such as kitty, WezTerm, Ghostty, iTerm2 or Windows
-  Terminal. Elsewhere the suits come out smaller; compact cards (`Esc`) look
+  Terminal. Elsewhere the suits come out smaller; compact cards (`Tab`) look
   right everywhere.
 - **Colors.** The interface uses your terminal's 16-color palette, so it fits
   your theme, light or dark. Only the cards have fixed colors.
@@ -314,4 +335,4 @@ never waits for it), the app's state machine in `src/app.ts`, and the drawing in
 
 ## License
 
-MIT
+[MIT](LICENSE)

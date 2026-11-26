@@ -10,7 +10,6 @@ import { parseArgs } from 'node:util';
 import {
   type App,
   type Dealer,
-  abandon,
   animating,
   applyAhead, applyRating, applyShared, offerShare, playTime, slackCheck,
   applyDeepVerdict,
@@ -28,10 +27,10 @@ import { DEFAULT_REDEALS, type DrawMode, deal, positionKey, successors } from '.
 import { findWinnableSeed } from './core/solver.ts';
 import { SolverClient } from './solver-client.ts';
 import { ansi, diff } from './ui/ansi.ts';
-import { loadSavedGame, ownedElsewhere, removeSavedGame, replaySaved, savedGamePath, snapshot, writeSavedGame } from './saved-game.ts';
-import { type GameRecord, type Stats, pastGame, recordLoss, unrated } from './stats.ts';
+import { loadSavedGame, removeSavedGame, replaySaved, savedGamePath, snapshot, writeSavedGame } from './saved-game.ts';
+import { type GameRecord, type ShareState, type Stats, pastGame, unrated } from './stats.ts';
 import { postShare, sharePayload, shareUrl } from './share.ts';
-import { loadStats, saveStats, statsPath } from './stats-file.ts';
+import { appendStats, loadStats, saveShare, statsPath } from './stats-file.ts';
 import { renderDeals, renderHelp, renderNotice, renderStats } from './ui/help.ts';
 import { normalizeKey } from './ui/input.ts';
 import { MIN_WIDTH, minScreenHeight, renderKlondike } from './ui/layout.ts';
@@ -42,31 +41,40 @@ const AUTO_STEP_MS = 60;
 /** Winnable deals kept ready per draw mode, so `n` never has to wait. */
 const DEALS_AHEAD = 2;
 
-const { values } = parseArgs({
-  options: {
-    seed: { type: 'string' },
-    draw: { type: 'string', default: '1' },
-    redeals: { type: 'string' },
-    ascii: { type: 'boolean', default: false },
-    compact: { type: 'boolean', default: false },
-    theme: { type: 'string' },
-    'any-deal': { type: 'boolean', default: false },
-    help: { type: 'boolean', short: 'h', default: false },
-  },
-});
+/** The options; a mistyped one gets a line of help rather than a stack trace. */
+const { values } = (() => {
+  try {
+    return parseArgs({
+      options: {
+        seed: { type: 'string' },
+        draw: { type: 'string', default: '1' },
+        redeals: { type: 'string' },
+        ascii: { type: 'boolean', default: false },
+        compact: { type: 'boolean', default: false },
+        theme: { type: 'string' },
+        'any-deal': { type: 'boolean', default: false },
+        help: { type: 'boolean', short: 'h', default: false },
+      },
+    });
+  } catch (e) {
+    process.stderr.write(`${(e as Error).message}. See soliterminal --help.\n`);
+    process.exit(2);
+  }
+})();
 
 if (values.help) {
   process.stdout.write(
     'Usage: soliterminal [--seed N] [--draw 1|3] [--redeals N|unlimited] [--compact] [--theme NAME] [--ascii] [--any-deal]\n' +
       `  --redeals N   times the waste can be turned over (default ${DEFAULT_REDEALS}; 'unlimited' for no limit)\n` +
-      '  --compact     start with small cards (Esc switches while playing)\n' +
+      '  --seed N      play deal N (0 to 4294967295); asks first if a game is kept\n' +
+      '  --compact     start with small cards (tab switches while playing)\n' +
       `  --theme NAME  colors from your terminal palette: ${Object.keys(ACCENTS).join(', ')} (default green)\n` +
       '  --any-deal    deal any shuffle, not only ones proven winnable\n' +
       '\n' +
       'Environment:\n' +
       '  SOLITERMINAL_CARD=ddd|fff  card face: soft grey-white (default) or pure white\n' +
       '  SOLITERMINAL_THEME=NAME    same as --theme\n' +
-      '  SOLITERMINAL_STATS=PATH    where statistics are kept\n' +
+      '  SOLITERMINAL_STATS=PATH    where statistics are kept (a log, one line per game)\n' +
       '  SOLITERMINAL_GAME=PATH     where the game in progress is kept (default: next to the statistics)\n' +
       '  SOLITERMINAL_SHARE_URL=URL where shared results go (for testing a share server)\n' +
       '  COLORTERM=truecolor        exact card colors (otherwise 256-color matches)\n' +
@@ -91,6 +99,20 @@ function parseRedeals(text: string | undefined): number {
   process.exit(2);
 }
 const redeals = parseRedeals(values.redeals);
+
+function parseSeed(text: string | undefined): number | undefined {
+  if (text === undefined) return undefined;
+  const t = text.trim();
+  if (/^\d{1,10}$/.test(t) && Number(t) <= 0xffff_ffff) return Number(t);
+  process.stderr.write(`--seed takes a whole number from 0 to 4294967295; got "${text}".\n`);
+  process.exit(2);
+}
+const seedAsked = parseSeed(values.seed);
+
+if (values.draw !== '1' && values.draw !== '3') {
+  process.stderr.write(`--draw takes 1 or 3; got "${values.draw}".\n`);
+  process.exit(2);
+}
 
 const { stdin, stdout } = process;
 if (!stdin.isTTY || !stdout.isTTY) {
@@ -144,38 +166,58 @@ const statsFile = statsPath(process.env);
 const gameFile = savedGamePath(process.env, statsFile);
 
 /**
- * The game in progress is kept on disk and picked up again on the next start,
- * unless --seed asks for a particular deal. If another soliterminal is running
- * and keeping its game there, this one leaves the file alone and is not kept.
+ * The game in progress is kept on disk and picked up again on the next start.
+ * --seed asks for a particular deal: if a game under way is kept, the player
+ * is asked first whether to give it up (a loss) or carry on with it.
  */
 const saved = loadSavedGame(gameFile);
-const keeping = !(saved && ownedElsewhere(saved));
-const resumed = keeping && saved && values.seed === undefined ? replaySaved(saved) : undefined;
-let stats = loadStats(statsFile);
-// A kept game that is replaced before it was finished is given up: that ends the streak.
-if (keeping && saved && !resumed && saved.play === 'counted') {
-  stats = recordLoss(stats, saved.drawMode, { seed: saved.seed, ms: saved.ms, moves: saved.steps.length, at: Date.now() });
-}
+const resumed = saved ? replaySaved(saved) : undefined;
+const stats = loadStats(statsFile);
 
 const shareTo = shareUrl(process.env);
 const options = { ascii, compact: values.compact, redeals, stats, canShare: shareTo !== undefined };
 let app: App;
-if (resumed && saved) {
-  app = resumeApp(resumed, { ...options, verified: saved.verified, play: saved.play, ms: saved.ms, now: Date.now(), winnable: saved.winnable });
+if (resumed && saved && (seedAsked === undefined || saved.play === 'counted')) {
+  app = resumeApp(resumed, {
+    ...options,
+    verified: saved.verified,
+    play: saved.play,
+    ms: saved.ms,
+    now: Date.now(),
+    winnable: saved.winnable,
+    gameId: saved.id,
+    ...(saved.at === undefined ? {} : { gameAt: saved.at }),
+  });
+  if (seedAsked !== undefined) app = { ...app, dialog: 'seed', choice: 0, seedOffer: { seed: seedAsked, drawMode } };
 } else {
-  const first = values.seed === undefined ? dealer(drawMode) : { seed: Number(values.seed) >>> 0, verified: false };
+  const first = seedAsked === undefined ? dealer(drawMode) : { seed: seedAsked, verified: false };
   app = offerShare(createApp(deal(first.seed, drawMode, redeals), { ...options, verified: first.verified }));
 }
 refill(app.game.drawMode);
 
-/** Saves statistics whenever they change, and the game whenever it moves. A failed save is not worth interrupting a game for. */
 currentStats = () => app.stats;
-let savedStats = app.stats;
+let savedShare: ShareState | undefined = app.stats.share;
+
+/**
+ * Writes what changed: new lines for the statistics log (then reads the log
+ * back, so games finished in other windows count too), the share state, and
+ * the game whenever it moves. A failed save is not worth interrupting a game for.
+ */
 function saveIfChanged(): void {
-  if (app.stats !== savedStats) {
-    savedStats = app.stats;
-    saveStats(statsFile, app.stats);
+  if (app.outbox.length > 0) {
+    const ended = app.outbox.some((e) => 'game' in e);
+    const written = appendStats(statsFile, app.outbox);
+    app = { ...app, outbox: [] };
+    if (written && ended) {
+      const share = app.stats.share;
+      app = { ...app, stats: { ...loadStats(statsFile), ...(share ? { share } : {}) } };
+    }
     rateIfNeeded();
+    shareIfAgreed();
+  }
+  if (app.stats.share !== savedShare) {
+    savedShare = app.stats.share;
+    if (savedShare) saveShare(statsFile, savedShare);
     shareIfAgreed();
   }
   saveGame();
@@ -195,7 +237,7 @@ function rateIfNeeded(): void {
   const limit = game.limit === null ? Infinity : (game.limit ?? DEFAULT_REDEALS);
   solver.rate(deal(game.seed, game.drawMode, limit), (level) => {
     rating = undefined;
-    app = applyRating(app, game, level);
+    app = applyRating(app, game.id, level);
     saveIfChanged();
     render();
   });
@@ -222,7 +264,7 @@ function shareIfAgreed(): void {
   if (!batch) return;
   shareTried = true;
   void postShare(shareTo, batch.payload).then((error) => {
-    app = applyShared(app, batch.games, error);
+    app = applyShared(app, batch.games.map((g) => g.id), error);
     saveIfChanged();
     render();
   });
@@ -231,16 +273,20 @@ function shareIfAgreed(): void {
 let keptGame: KlondikeState | undefined;
 let keptHistory: readonly KlondikeState[] | undefined;
 let keptPlay: App['play'] | undefined;
-/** Writes the game in progress when it changed, or `always` (to bring the clock up to date); a finished game is removed. */
-function saveGame(always = false): void {
-  if (!keeping) return;
-  if (!always && app.game === keptGame && app.history === keptHistory && app.play === keptPlay) return;
+let kept = false;
+/**
+ * Writes the game in progress when it changed, or `always` (to bring the
+ * clock up to date); a finished game is removed. Says whether a game is kept.
+ */
+function saveGame(always = false): boolean {
+  if (!always && app.game === keptGame && app.history === keptHistory && app.play === keptPlay) return kept;
   keptGame = app.game;
   keptHistory = app.history;
   keptPlay = app.play;
   const snap = snapshot(app, Date.now());
-  if (snap) writeSavedGame(gameFile, snap);
-  else removeSavedGame(gameFile);
+  kept = snap !== undefined && writeSavedGame(gameFile, snap);
+  if (!snap) removeSavedGame(gameFile);
+  return kept;
 }
 
 // --- terminal setup and teardown -------------------------------------------
@@ -254,12 +300,9 @@ function restore(): void {
 }
 
 function quit(code = 0): never {
-  // A kept game is only paused: run soliterminal again to carry on. One that is
-  // not kept (another game owns the file) is given up, which ends the streak.
-  const kept = keeping && app.finishedAt === undefined;
-  if (!keeping) app = abandon(app, Date.now());
+  // A kept game is only paused: run soliterminal again to carry on.
   saveIfChanged();
-  saveGame(true);
+  const kept = saveGame(true);
   restore();
   void solver.close();
   const after = kept ? ' Your game is saved: run soliterminal to carry on.' : '';
@@ -404,7 +447,7 @@ stdout.on('resize', () => {
 
 // The clock in the header only changes once a second, and diff sends just those cells.
 setInterval(render, 1000).unref();
-// Write the game straight away, so a second soliterminal started now sees it is taken.
+// Write the game straight away, so a tool looking at the file sees the game on screen.
 saveGame(true);
 render();
 scheduleAuto();

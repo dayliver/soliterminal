@@ -5,32 +5,27 @@ import { type GameRecord, type ModeStats, type Stats, statsFor, winRate } from '
 const HELP: [string, string][] = [
   ['', 'Press where cards come from, then where they go.'],
   ['', ''],
-  ['~ or `', 'draw from the stock'],
-  ['1', 'the waste'],
-  ['q w e r t y u', 'tableau columns 1 to 7'],
-  ['F9', 'send to its foundation (the usual way)'],
-  ['F5 F6 F7 F8', 'one particular foundation'],
+  ['q', 'draw from the stock'],
+  ['w', 'the waste'],
+  ['a s d f g h j', 'tableau columns 1 to 7'],
+  ['i', 'send to its foundation (the usual way)'],
+  ['r t y u', 'one particular foundation'],
   ['same key twice', 'move to the best spot'],
   ['', ''],
   ['arrows', 'move round the board; up and down change rows'],
   ['down in a column', 'choose cards from the top of the run, one fewer each time'],
   ['space', 'pick up / put down at the cursor; draw on the stock'],
-  ['enter', 'move the cursor\'s cards to the best spot'],
-  ['esc', 'put held cards back; otherwise large / compact cards'],
-  ['', ''],
+  ['enter', "move the cursor's cards to the best spot"],
   ['z', 'undo'],
-  ['h', 'hint, after a trip through the stock with no move'],
-  ['n', 'new game (always a winnable deal)'],
-  ['F2', 'start this deal over (asks first)'],
-  ['d', 'switch Draw 1 / Draw 3'],
-  ['s', 'statistics'],
-  ['g', 'play a deal by its seed, or one of your recent games'],
-  ['x', 'quit (asks first; the game is kept)'],
-  ['ctrl+c', 'quit at once'],
+  ['tab', 'large / compact cards'],
+  ['esc', 'put held cards back; otherwise the menu:'],
+  ['', '  new game, restart, Draw 1 / 3, hint, seeds, statistics'],
+  ['ctrl+q', 'quit (the game is kept for next time)'],
   ['', ''],
   ['', 'Win ✓ in the header: this position can still be won.'],
   ['', 'Win 0%: it cannot. You will be offered a retry.'],
   ['', '↺3 under the stock: redeals left (turning the waste over).'],
+  ['', 'A hint opens up after a trip through the stock with no move.'],
 ];
 
 export function renderHelp(width: number, height: number, ascii = false): ScreenBuffer {
@@ -78,8 +73,8 @@ export function renderStats(width: number, height: number, stats: Stats, ascii =
     buf.put(col[0]!, y, value(statsFor(stats, 1)), { fg: 'text', bold: true });
     buf.put(col[1]!, y, value(statsFor(stats, 3)), { fg: 'text', bold: true });
   });
-  buf.put(3, 5 + rows.length, 'A game counts from the first card moved.', { fg: 'dim' });
-  buf.put(3, 6 + rows.length, 'A new deal before this one is done ends the streak.', { fg: 'dim' });
+  buf.put(3, 5 + rows.length, 'A game counts once it is won or given up; one kept for later waits.', { fg: 'dim' });
+  buf.put(3, 6 + rows.length, 'A new deal before this one is done is a loss: it ends the streak.', { fg: 'dim' });
   buf.put(1, Math.min(height - 1, rows.length + 8), 'Press any key to go back to the game.', { fg: 'message' });
   return buf;
 }
@@ -116,7 +111,7 @@ export function renderDeals(
   let x = buf.put(3, 2, 'Seed  ', { fg: 'text' });
   x = buf.put(x, 2, screen.typed, { fg: 'key', bold: true });
   buf.put(x, 2, ' ', { bg: 'cursor' });
-  buf.put(Math.max(x + 3, 24), 2, `Draw ${screen.drawMode}  (d switches)`, { fg: 'dim' });
+  buf.put(Math.max(x + 3, 24), 2, `Draw ${screen.drawMode}  (${ascii ? 'left / right' : '← →'} switches)`, { fg: 'dim' });
   // What became of the typed deal before.
   if (screen.typed) {
     const seed = Number(screen.typed);
@@ -132,26 +127,20 @@ export function renderDeals(
   const room = Math.max(1, height - 11);
   // Keep the chosen row in view.
   const first = Math.max(0, Math.min(screen.index - room + 1, recent.length - room));
-  if (recent.length === 0) buf.put(5, 6, 'None yet: games are listed from the first card moved.', { fg: 'dim' });
+  if (recent.length === 0) buf.put(5, 6, 'None yet: games are listed once they are won or given up.', { fg: 'dim' });
   recent.slice(first, first + room).forEach((g, k) => {
     const i = first + k;
     const y = 6 + k;
     const chosen = screen.typed === '' && i === screen.index;
-    // The newest unfinished entry for the game on screen is that game: show its clock as it runs.
-    const live = g.result === 'playing' && current.playing && g.seed === current.seed && g.drawMode === current.drawMode && recent.findIndex((r) => r.result === 'playing' && r.seed === g.seed && r.drawMode === g.drawMode) === i;
     // A loss proven in play says at which move; one given up while it might still be won says so.
     const lost = g.lostAt === undefined ? (['gave up', 'message'] as const) : g.lostAt === 0 ? (['no win', 'red'] as const) : ([`lost @${g.lostAt}`, 'red'] as const);
-    const [result, fg] =
-      g.result === 'won' ? (['won', 'key'] as const) : g.result === 'lost' ? lost : live ? (['playing', 'message'] as const) : (['unfinished', 'dim'] as const);
-    const ms = live ? current.ms : g.ms;
-    const moves = live ? current.moves : g.moves;
-    const shown = g.result !== 'playing' || live;
+    const [result, fg] = g.result === 'won' ? (['won', 'key'] as const) : lost;
     if (chosen) buf.put(3, y, ascii ? '>' : '›', { fg: 'key', bold: true });
     buf.put(cols[0]!, y, String(g.seed), { fg: chosen ? 'key' : 'text', bold: chosen });
     buf.put(cols[1]!, y, String(g.drawMode), { fg: 'text' });
     buf.put(cols[2]!, y, result, { fg });
-    buf.put(cols[3]!, y, shown ? formatTime(ms) : '-', { fg: 'text' });
-    buf.put(cols[4]!, y, shown ? String(moves).padStart(5) : '    -', { fg: 'text' });
+    buf.put(cols[3]!, y, formatTime(g.ms), { fg: 'text' });
+    buf.put(cols[4]!, y, String(g.moves).padStart(5), { fg: 'text' });
     buf.put(cols[7]!, y, formatWhen(g.at), { fg: 'dim' });
     // Lost deals are rated in the background: … until then, ? if no win was found to rate them by.
     if (g.result === 'lost') {
@@ -165,7 +154,7 @@ export function renderDeals(
   const arrows = ascii ? 'up / down' : '↑ ↓';
   buf.put(1, foot, `Type a seed, or choose a game with ${arrows}. Enter plays it; esc goes back.`, { fg: 'message' });
   if (screen.note) buf.put(1, foot + 1, screen.note, { fg: 'red', bold: true });
-  else if (current.playing) buf.put(1, foot + 1, 'Playing another deal gives up the game in progress.', { fg: 'dim' });
+  else if (current.playing) buf.put(1, foot + 1, `Playing another deal gives up seed ${current.seed}: it counts as a loss.`, { fg: 'dim' });
   return buf;
 }
 

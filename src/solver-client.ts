@@ -3,6 +3,9 @@ import type { DrawMode, KlondikeState } from './core/klondike.ts';
 import type { Level, SolverMove, Verdict } from './core/solver.ts';
 import type { WorkerRequest, WorkerResponse } from './solver-worker.ts';
 
+/** Heap for one solver worker. Searches stop by node count well before this. */
+const WORKER_MEMORY_MB = 1024;
+
 type Job =
   | { readonly type: 'judge'; readonly state: KlondikeState; readonly deep: boolean; readonly done: (v: Verdict, next?: SolverMove) => void }
   | { readonly type: 'deal'; readonly drawMode: DrawMode; readonly redeals: number; readonly done: (seed: number | undefined) => void }
@@ -14,6 +17,7 @@ class Lane {
   #queue: Job[] = [];
   #running: Job | undefined;
   #nextId = 1;
+  #closed = false;
 
   get busy(): boolean {
     return this.#running !== undefined;
@@ -38,6 +42,7 @@ class Lane {
   }
 
   close(): Promise<number> {
+    this.#closed = true;
     this.#queue = [];
     return this.#worker?.terminate() ?? Promise.resolve(0);
   }
@@ -45,8 +50,22 @@ class Lane {
   #start(): Worker {
     // From source this file is .ts; in the published package it is compiled .js.
     const ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-    const worker = new Worker(new URL(`./solver-worker${ext}`, import.meta.url));
+    // A search that would take more memory than this ends the worker, not the game.
+    const worker = new Worker(new URL(`./solver-worker${ext}`, import.meta.url), { resourceLimits: { maxOldGenerationSizeMb: WORKER_MEMORY_MB } });
     worker.unref();
+    // An error ends the worker; 'exit' below deals with what it was doing.
+    worker.on('error', () => {});
+    worker.on('exit', () => {
+      if (worker !== this.#worker || this.#closed) return; // cancelled or closed: nobody waits
+      this.#worker = undefined;
+      const job = this.#running;
+      this.#running = undefined;
+      // The job gets the answer that claims nothing, so play goes on as if the solver ran out of time.
+      if (job?.type === 'judge') job.done('unclear');
+      if (job?.type === 'deal') job.done(undefined);
+      if (job?.type === 'rate') job.done(0);
+      this.#pump();
+    });
     worker.on('message', (res: WorkerResponse) => {
       if (worker !== this.#worker) return; // cancelled
       const job = this.#running;
@@ -80,7 +99,9 @@ class Lane {
  * deals; only the newest position is worth judging, so a waiting judge request
  * is replaced by a newer one. The second takes the long looks at positions the
  * quick judge could not settle, so those never hold up the quick ones. The
- * third looks one move ahead while the player thinks.
+ * third looks one move ahead while the player thinks, and the fourth rates
+ * finished deals. A worker that fails is replaced; its job gets an answer that
+ * claims nothing (`unclear`, no seed, or level 0).
  */
 export class SolverClient {
   #main = new Lane();

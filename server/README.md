@@ -1,7 +1,7 @@
 # soliterminal share server
 
 Receives the results players choose to share and keeps them in Cloudflare D1.
-The game asks once every thousand finished games and sends nothing unless the
+The game asks once every hundred finished games and sends nothing unless the
 player says yes. See "Sharing results" in the main README for what is sent.
 
 ## Deploy
@@ -22,11 +22,12 @@ with `SOLITERMINAL_SHARE_URL=https://<worker>/v1/games`.
 
 | | |
 |---|---|
-| `POST /v1/games` | A batch: `{ v: 1, id, client, games: [...] }`, 1,000 to 20,000 games |
+| `POST /v1/games` | A batch: `{ v: 1, id, client, games: [...] }`, 100 to 1,000 games, each with its own `id` |
 | `GET /v1/summary` | Games, wins and installations so far |
 
-Batches under 1,000 games are refused (400), and so is a second batch from the
-same installation within a day (429). A batch sent twice is stored once.
+Batches under 100 games are refused (400), and so is a second batch from the
+same installation within a day (429). A game sent twice is stored once, by its
+installation and its own id.
 
 ## Reading the data
 

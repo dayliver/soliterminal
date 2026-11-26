@@ -7,7 +7,7 @@
 import { parseArgs } from 'node:util';
 import { createApp, viewOf } from '../src/app.ts';
 import { judge } from '../src/core/solver.ts';
-import { loadSavedGame, ownedElsewhere, replaySaved, savedGamePath } from '../src/saved-game.ts';
+import { loadSavedGame, replaySaved, savedGamePath } from '../src/saved-game.ts';
 import { statsPath } from '../src/stats-file.ts';
 import { renderKlondike } from '../src/ui/layout.ts';
 
@@ -27,8 +27,7 @@ if (!states) {
 const game = states[states.length - 1]!;
 const s = Math.floor(saved.ms / 1000);
 const clock = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-const running = ownedElsewhere(saved) ? `running (pid ${saved.pid})` : 'not running';
-console.log(`Seed ${saved.seed}, Draw ${saved.drawMode}, ${game.moves} moves, ${clock} on the clock; saved ${saved.savedAt}; ${running}.`);
+console.log(`Seed ${saved.seed}, Draw ${saved.drawMode}, ${game.moves} moves, ${clock} on the clock; saved ${saved.savedAt}.`);
 
 const judged = values['no-judge'] ? undefined : judge(game, { thorough: true });
 const view = viewOf(createApp(game), 0);

@@ -24,7 +24,7 @@ const NAMED: Record<string, string> = {
 
 /**
  * Turns a Node keypress into one short name the app understands:
- * `q`, `1`, `` ` ``, `?`, `f9`, `left`, `space`, `enter`, `escape`, `ctrl+c`…
+ * `q`, `a`, `?`, `left`, `space`, `enter`, `escape`, `tab`, `ctrl+q`…
  * Shifted letters count as the plain letter. Returns `undefined` for keys the
  * game does not use.
  */
@@ -32,7 +32,7 @@ export function normalizeKey(str: string | undefined, key: RawKey | undefined): 
   // Focus reports (ESC [ I / ESC [ O), sent once focus reporting is turned on.
   if (key?.code === '[I') return 'focus-in';
   if (key?.code === '[O') return 'focus-out';
-  if (key?.ctrl) return key.name === 'c' ? 'ctrl+c' : undefined;
+  if (key?.ctrl) return key.name === 'c' ? 'ctrl+c' : key.name === 'q' ? 'ctrl+q' : undefined;
   const name = key?.name;
   if (name) {
     if (NAMED[name]) return NAMED[name];

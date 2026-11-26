@@ -11,6 +11,15 @@
     "tui"
   ],
   "license": "MIT",
+  "author": "dayliver",
+  "homepage": "https://github.com/dayliver/soliterminal#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dayliver/soliterminal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dayliver/soliterminal/issues"
+  },
   "type": "module",
   "bin": {
     "soliterminal": "dist/cli.js"

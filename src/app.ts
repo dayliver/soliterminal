@@ -23,10 +23,10 @@ import {
   TABLEAU_COLUMNS,
 } from './core/klondike.ts';
 import type { Level, SolverMove, Verdict } from './core/solver.ts';
-import { EMPTY_STATS, type GameRecord, type Stats, type WinRecord, pastGame, recordLoss, recordStart, recordWin, statsFor, winRate, withLevel } from './stats.ts';
+import { EMPTY_STATS, type StatEvent, type Stats, type WinRecord, newGameId, pastGame, recordLoss, recordWin, statsFor, winRate, withLevel } from './stats.ts';
 import { formatWhen } from './ui/help.ts';
-import { SHARE_EVERY, acceptShare, declineShare, finishedGames, markShared, shareDue, unsent } from './share.ts';
-import { keyLabel, pileForKey } from './ui/keymap.ts';
+import { MAX_BATCH, SHARE_EVERY, acceptShare, declineShare, finishedGames, markShared, shareDue, unsent } from './share.ts';
+import { STOCK_KEY, keyLabel, pileForKey } from './ui/keymap.ts';
 import type { CursorSpot, Dialog, View } from './ui/layout.ts';
 
 /**
@@ -95,12 +95,17 @@ export interface App {
   /** The deal itself was proven winnable, so a restart starts out winnable. */
   readonly verified: boolean;
   /**
-   * A question on screen: confirm a restart (F2), confirm giving up for a new
-   * deal (n), or the choices after a proven loss. Other keys wait until it is answered.
+   * A box of choices on screen: the menu (esc), a question before giving up
+   * a game, the choices after a loss or a win, sharing, or a seed asked for
+   * while a game was kept. Other keys wait until it is answered.
    */
-  readonly dialog?: 'restart' | 'new' | 'lost' | 'won' | 'quit' | 'share';
-  /** The dialog the quit question (x) was asked from, to go back to on esc. */
-  readonly quitFrom?: 'lost' | 'won';
+  readonly dialog?: DialogKind;
+  /** The highlighted choice in the dialog; up and down move it, enter or space takes it. */
+  readonly choice: number;
+  /** When the dialog came up, so a key already on its way is not taken as the answer. */
+  readonly dialogAt?: number;
+  /** The deal asked for with --seed while a game was kept: the `seed` dialog offers it. */
+  readonly seedOffer?: { readonly seed: number; readonly drawMode: DrawMode };
   /** The player chose to play on after a loss; do not ask again until it is winnable. */
   readonly playingOn: boolean;
   readonly cursor: CursorSpot;
@@ -120,7 +125,7 @@ export interface App {
   /** The first move of a win the solver found from position `version`. */
   readonly hint?: { readonly version: number; readonly move: SolverMove };
   readonly ascii: boolean;
-  /** Small cards (Esc switches); kept across deals. */
+  /** Small cards (tab switches); kept across deals. */
   readonly compact: boolean;
   /** Draw mode for the next deal. */
   readonly nextDrawMode: DrawMode;
@@ -143,10 +148,19 @@ export interface App {
   readonly canShare: boolean;
   readonly stats: Stats;
   /**
-   * Where this play of the deal stands in the statistics: not yet counted (no
-   * move made), counted as played, or already counted as a win.
+   * Lines for the statistics log, made since the runner last wrote them out.
+   * The runner appends them and empties this.
+   */
+  readonly outbox: readonly StatEvent[];
+  /**
+   * Where this play of the deal stands: not yet counted (no card moved),
+   * under way (it goes on record when it ends), or already on record as a win.
    */
   readonly play: 'fresh' | 'counted' | 'won';
+  /** This play's name in the statistics; a restart keeps it, a new deal makes a new one. */
+  readonly gameId: string;
+  /** When this play started counting: its first card moved. */
+  readonly gameAt?: number;
   /** The win just recorded, for the win dialog. */
   readonly lastWin?: WinRecord;
   /** The win ceremony is running; it ends on a `tick` or any key. */
@@ -155,6 +169,8 @@ export interface App {
   readonly autoQueue: readonly KlondikeState[];
   readonly quit: boolean;
 }
+
+export type DialogKind = 'menu' | 'restart' | 'new' | 'lost' | 'won' | 'share' | 'seed';
 
 export interface DealsScreen {
   readonly typed: string;
@@ -167,9 +183,12 @@ export interface DealsScreen {
 /** Seeds are 32-bit. */
 const MAX_SEED = 0xffff_ffff;
 
-const WELCOME = 'Press a pile key, then where it goes. ? for help.';
+const WELCOME = 'Press a pile key, then where it goes. Esc for the menu, ? for help.';
 
-const STALLED = 'This game can still be won, there is a move you have not tried. h shows it.';
+const STALLED = 'This game can still be won, there is a move you have not tried. Hint in the menu (esc) shows it.';
+
+/** Enter or space this soon after a dialog comes up was meant for the board, not the dialog. */
+export const DIALOG_GUARD_MS = 700;
 
 /** How long the win ceremony runs before the results come up. */
 export const CEREMONY_MS = 2_500;
@@ -183,6 +202,9 @@ export interface AppOptions {
   readonly stats?: Stats;
   /** See {@link App.canShare}. */
   readonly canShare?: boolean;
+  /** Carries on a play already named: see {@link App.gameId}. */
+  readonly gameId?: string;
+  readonly gameAt?: number;
 }
 
 export function createApp(game: KlondikeState, options: AppOptions = {}): App {
@@ -208,8 +230,12 @@ export function createApp(game: KlondikeState, options: AppOptions = {}): App {
     pausedMs: 0,
     redeals: options.redeals ?? game.redealsLeft,
     stats: options.stats ?? EMPTY_STATS,
+    outbox: [],
     canShare: options.canShare ?? false,
     play: 'fresh',
+    gameId: options.gameId ?? newGameId(),
+    ...(options.gameAt === undefined ? {} : { gameAt: options.gameAt }),
+    choice: 0,
     celebrating: false,
     autoQueue: [],
     quit: false,
@@ -234,7 +260,8 @@ export interface ResumeOptions extends AppOptions {
 export function resumeApp(states: readonly KlondikeState[], options: ResumeOptions): App {
   const start = createApp(states[0]!, options);
   const game = states[states.length - 1]!;
-  if (states.length === 1) return { ...start, play: options.play, message: 'Welcome back. Your game is where you left it.' };
+  const clock = options.ms > 0 ? { startedAt: options.now - options.ms } : {};
+  if (states.length === 1) return { ...start, ...clock, play: options.play, message: 'Welcome back. Your game is where you left it.' };
   let app: App = {
     ...start,
     game,
@@ -254,32 +281,51 @@ export function resumeApp(states: readonly KlondikeState[], options: ResumeOptio
   return app;
 }
 
-const DIALOGS: Record<'restart' | 'new' | 'lost' | 'quit', Dialog> = {
-  quit: {
-    title: 'Quit soliterminal?',
-    lines: ['Your game is kept: run soliterminal to carry on.'],
-    choices: [['y', 'quit'], ['esc', 'keep playing']],
-  },
-  restart: {
-    title: 'Restart this deal?',
-    lines: ['Every move so far will be undone.'],
-    choices: [['y', 'restart'], ['esc', 'keep playing']],
-  },
-  new: {
-    title: 'Give up this game?',
-    lines: ['A new deal replaces this one.'],
-    choices: [['y', 'new deal'], ['esc', 'keep playing']],
-  },
-  lost: {
-    title: 'No way to win from here',
-    lines: ['Win chance is now 0%. Try again?'],
-    choices: [['z', 'back to the last winnable spot'], ['F2', 'restart this deal'], ['n', 'new deal'], ['x', 'quit'], ['esc', 'keep playing']],
-    danger: true,
-  },
-};
+/** One row of a dialog: what it says, and what taking it does. */
+interface Choice {
+  readonly label: string;
+  readonly act: (app: App, now: number, dealer: Dealer) => App;
+}
+
+/** What a dialog shows and offers. `cancel` is what esc does. */
+interface DialogSpec {
+  readonly title: string;
+  readonly lines: readonly string[];
+  readonly choices: readonly Choice[];
+  readonly cancel: (app: App, now: number, dealer: Dealer) => App;
+  readonly danger?: boolean;
+}
+
+const close = (app: App): App => ({ ...app, dialog: undefined });
+const carryOn = (app: App): App => ({ ...close(app), message: 'Carry on.' });
+const keepPlaying: Choice = { label: 'Keep playing', act: carryOn };
+
+/** Nothing to give up while no card has moved, or once the game is over. */
+const untouched = (app: App): boolean => app.play !== 'counted' || app.finishedAt !== undefined;
+
+/** The menu that esc brings up: everything that is not a move. */
+function menuSpec(app: App): DialogSpec {
+  const other: DrawMode = app.nextDrawMode === 1 ? 3 : 1;
+  return {
+    title: 'Menu',
+    lines: [],
+    choices: [
+      { label: 'Resume', act: close },
+      { label: 'New game', act: (a, now, dealer) => (untouched(a) ? newGame(close(a), dealer, undefined, now) : { ...a, held: undefined, dialog: 'new' }) },
+      { label: 'Restart this deal', act: (a) => askRestart(close(a)) },
+      { label: `Switch to Draw ${other}`, act: (a, now, dealer) => switchDraw(close(a), dealer, now) },
+      { label: 'Hint', act: (a) => showHint(close(a)) },
+      { label: 'Play a seed or a recent game', act: (a) => openDeals(close(a)) },
+      { label: 'Statistics', act: (a) => ({ ...close(a), held: undefined, showStats: true }) },
+      { label: 'Help', act: (a) => ({ ...close(a), showHelp: true }) },
+      { label: 'Quit (your game is kept)', act: (a) => ({ ...a, quit: true }) },
+    ],
+    cancel: close,
+  };
+}
 
 /** The results after a win: this game, then the record for its draw mode. */
-function wonDialog(app: App): Dialog {
+function wonSpec(app: App): DialogSpec {
   const win = app.lastWin;
   const m = statsFor(app.stats, app.game.drawMode);
   const lines: string[] = [];
@@ -291,43 +337,120 @@ function wonDialog(app: App): Dialog {
   }
   lines.push(`Draw ${app.game.drawMode}: won ${m.won} of ${m.played} (${winRate(m)}%).`);
   lines.push(`Streak ${m.streak}, longest ${m.bestStreak}.`);
+  const look = (a: App): App => ({ ...close(a), message: 'Esc for the menu: a new deal, or choose one.' });
   return {
     title: 'You won!',
     lines,
-    choices: [['n', 'new deal'], ['g', 'choose a deal'], ['s', 'statistics'], ['x', 'quit'], ['esc', 'look at the board']],
+    choices: [
+      { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, undefined, now) },
+      { label: 'Choose a deal', act: (a) => openDeals(close(a)) },
+      { label: 'Statistics', act: (a) => ({ ...close(a), showStats: true }) },
+      { label: 'Look at the board', act: look },
+    ],
+    cancel: look,
   };
 }
 
-/** The question at each thousand games. */
-function shareDialog(app: App): Dialog {
+/** The question at each hundred games. */
+function shareSpec(app: App): DialogSpec {
   const total = finishedGames(app.stats);
-  const next = (Math.floor(total / SHARE_EVERY) + 1) * SHARE_EVERY;
   const n = (x: number) => x.toLocaleString('en-US');
+  const notNow = (a: App): App => {
+    const next = (Math.floor(finishedGames(a.stats) / SHARE_EVERY) + 1) * SHARE_EVERY;
+    return say({ ...close(a), stats: declineShare(a.stats) }, `Not sent. You will be asked again at ${n(next)} games.`);
+  };
+  const next = (Math.floor(total / SHARE_EVERY) + 1) * SHARE_EVERY;
   return {
     title: `${n(total)} games played!`,
     lines: [
       'Send your results to Klondike research?',
-      `${n(unsent(app.stats).length)} games: seed, mode, result, time, moves.`,
+      `${n(Math.min(unsent(app.stats).length, MAX_BATCH))} games: seed, mode, result, time, moves.`,
       'Nothing about you or your computer is sent.',
       `Not now asks again at ${n(next)}, with all games.`,
     ],
-    choices: [['y', 'send'], ['n', 'not now']],
+    choices: [
+      { label: 'Send', act: (a) => say({ ...close(a), stats: acceptShare(a.stats) }, 'Thank you! Sending your results...') },
+      { label: 'Not now', act: notNow },
+    ],
+    cancel: notNow,
   };
 }
 
-/** The quit question; a finished game has nothing to keep. */
-function quitDialog(app: App): Dialog {
-  return app.finishedAt === undefined ? DIALOGS.quit : { ...DIALOGS.quit, lines: ['See you next time.'] };
-}
-
-/** The loss dialog, saying how far back the game may have been lost when that is more than one move. */
-function lostDialog(app: App): Dialog {
+/** The choices after a proven loss, saying how far back it may have been lost when that is more than one move. */
+function lostSpec(app: App): DialogSpec {
   const since = app.history.length - (app.lastWinnable?.history.length ?? 0);
-  if (since <= 1) return DIALOGS.lost;
+  const playOn = (a: App): App => ({ ...close(a), playingOn: true, message: 'Playing on. This deal can no longer be won.' });
   return {
-    ...DIALOGS.lost,
-    lines: [`It was lost within the last ${since} moves.`, 'z goes back to just before them.'],
+    title: 'No way to win from here',
+    lines: since <= 1 ? ['Win chance is now 0%. Try again?'] : [`It was lost within the last ${since} moves.`, 'Going back goes to just before them.'],
+    choices: [
+      { label: 'Back to the last winnable spot', act: (a) => backToWinnable(a) },
+      { label: 'Restart this deal', act: (a) => restart(a) },
+      { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, undefined, now) },
+      { label: 'Play on', act: playOn },
+    ],
+    cancel: playOn,
+    danger: true,
   };
+}
+
+/** A seed was asked for on the command line while a game was kept. */
+function seedSpec(app: App): DialogSpec {
+  const offer = app.seedOffer;
+  const keep = (a: App): App => ({ ...close(a), seedOffer: undefined, message: 'Welcome back. Your game is where you left it.' });
+  return {
+    title: 'A game is in progress',
+    lines: offer ? [`You asked for seed ${offer.seed}, Draw ${offer.drawMode}.`, 'Giving up the kept game counts as a loss.'] : [],
+    choices: [
+      { label: 'Carry on with the kept game', act: keep },
+      { label: offer ? `Give up and play seed ${offer.seed}` : 'Give up', act: (a, now) => (a.seedOffer ? playSeed({ ...close(a), seedOffer: undefined }, a.seedOffer.seed, a.seedOffer.drawMode, now) : keep(a)) },
+    ],
+    cancel: keep,
+  };
+}
+
+function confirmSpec(kind: 'restart' | 'new'): DialogSpec {
+  return kind === 'restart'
+    ? {
+        title: 'Restart this deal?',
+        lines: ['Every move so far will be undone.'],
+        choices: [{ label: 'Restart', act: (a) => restart(a) }, keepPlaying],
+        cancel: carryOn,
+      }
+    : {
+        title: 'Give up this game?',
+        lines: ['A new deal replaces this one. It counts as a loss.'],
+        choices: [{ label: 'Give up and deal a new game', act: (a, now, dealer) => newGame(a, dealer, undefined, now) }, keepPlaying],
+        cancel: carryOn,
+      };
+}
+
+function specOf(app: App): DialogSpec | undefined {
+  switch (app.dialog) {
+    case undefined:
+      return undefined;
+    case 'menu':
+      return menuSpec(app);
+    case 'won':
+      return wonSpec(app);
+    case 'share':
+      return shareSpec(app);
+    case 'lost':
+      return lostSpec(app);
+    case 'seed':
+      return seedSpec(app);
+    case 'restart':
+    case 'new':
+      return confirmSpec(app.dialog);
+  }
+}
+
+/** The dialog as the screen draws it. */
+function dialogView(app: App): Dialog | undefined {
+  const spec = specOf(app);
+  if (!spec) return undefined;
+  const choice = Math.min(app.choice, spec.choices.length - 1);
+  return { title: spec.title, lines: spec.lines, choices: spec.choices.map((c) => c.label), selected: choice, ...(spec.danger ? { danger: true } : {}) };
 }
 
 export function viewOf(app: App, now: number): View {
@@ -345,7 +468,7 @@ export function viewOf(app: App, now: number): View {
     record: statsFor(app.stats, app.game.drawMode),
     lostBefore: pastGame(app.stats, app.game.seed, app.game.drawMode, 'lost')?.at,
     status: app.status,
-    dialog: app.dialog === 'won' ? wonDialog(app) : app.dialog === 'lost' ? lostDialog(app) : app.dialog === 'quit' ? quitDialog(app) : app.dialog === 'share' ? shareDialog(app) : app.dialog && DIALOGS[app.dialog],
+    dialog: dialogView(app),
     // The confetti keeps falling behind the results until they are put away.
     celebration: (app.celebrating || app.dialog === 'won') && app.finishedAt !== undefined ? now - app.finishedAt : undefined,
   };
@@ -375,7 +498,7 @@ function explain(app: App, error: MoveError, from: PileId, to?: PileId): string 
   const lead = leadCard(app, from);
   switch (error) {
     case 'empty-source':
-      return from.kind === 'waste' ? 'The waste is empty. Press ` to draw.' : `Nothing to move from ${pileName(from)}.`;
+      return from.kind === 'waste' ? `The waste is empty. Press ${STOCK_KEY} to draw.` : `Nothing to move from ${pileName(from)}.`;
     case 'stock-empty':
       return 'The stock and the waste are both empty.';
     case 'no-redeals':
@@ -389,7 +512,7 @@ function explain(app: App, error: MoveError, from: PileId, to?: PileId): string 
       const card = cardAt(app, from);
       const home = card === undefined ? undefined : foundationFor(app.game, card);
       const where = home === undefined ? 'another foundation' : keyLabel(pile.foundation(home));
-      return `${lead} goes on ${where}. Press F9 to send it there.`;
+      return `${lead} goes on ${where}. Press ${keyLabel({ kind: 'auto-foundation' })} to send it there.`;
     }
     case 'not-allowed':
       if (to?.kind === 'tableau' && from.kind === 'tableau' && held) {
@@ -416,13 +539,13 @@ const say = (app: App, message: string): App => ({ ...app, message });
 function winIfDone(app: App, now: number): App {
   if (!isWon(app.game) || app.finishedAt !== undefined) return app;
   const ms = playTime(app, now);
-  let { stats, play, lastWin } = app;
+  let { stats, play, lastWin, outbox } = app;
   if (play !== 'won') {
-    const id = { seed: app.game.seed, at: now, limit: dealLimit(app) };
-    const counted = play === 'fresh' ? recordStart(stats, app.game.drawMode, id) : stats;
-    const r = recordWin(counted, app.game.drawMode, ms, app.game.moves, { ...id, redeals: redealsUsed([...app.history, app.game]) });
+    const id = { id: app.gameId, seed: app.game.seed, at: app.gameAt ?? now, limit: dealLimit(app) };
+    const r = recordWin(stats, app.game.drawMode, ms, app.game.moves, { ...id, redeals: redealsUsed([...app.history, app.game]) });
     stats = r.stats;
     lastWin = r.record;
+    outbox = [...outbox, { game: r.game }];
     play = 'won';
   }
   return {
@@ -430,6 +553,7 @@ function winIfDone(app: App, now: number): App {
     finishedAt: now,
     status: 'winnable',
     stats,
+    outbox,
     play,
     lastWin,
     celebrating: true,
@@ -442,8 +566,8 @@ function winIfDone(app: App, now: number): App {
 const dealLimit = (app: App): number => (app.history[0] ?? app.game).redealsLeft;
 
 /** The background's rating of a finished game's deal. */
-export function applyRating(app: App, game: GameRecord, level: Level): App {
-  return { ...app, stats: withLevel(app.stats, game, level) };
+export function applyRating(app: App, id: string, level: Level): App {
+  return { ...app, stats: withLevel(app.stats, id, level), outbox: [...app.outbox, { level: { id, level } }] };
 }
 
 /** How many times the waste was turned over along the way: undone redeals do not count. */
@@ -487,8 +611,9 @@ export function abandon(app: App, now = Date.now()): App {
   if (app.play !== 'counted') return app;
   // A loss proven while playing says which move lost it: the one after the last winnable position.
   const lostAt = app.status === 'lost' ? (app.lastWinnable ? app.lastWinnable.history.length + 1 : 0) : undefined;
-  const end = { seed: app.game.seed, ms: Math.round(playTime(app, now)), moves: app.game.moves, at: now, limit: dealLimit(app), lostAt };
-  return { ...app, stats: recordLoss(app.stats, app.game.drawMode, end), play: 'fresh' };
+  const end = { id: app.gameId, seed: app.game.seed, ms: Math.round(playTime(app, now)), moves: app.game.moves, at: app.gameAt ?? now, limit: dealLimit(app), lostAt };
+  const r = recordLoss(app.stats, app.game.drawMode, end);
+  return { ...app, stats: r.stats, outbox: [...app.outbox, { game: r.game }], play: 'fresh' };
 }
 
 /** A new position: the solver's earlier answer no longer applies. */
@@ -588,7 +713,7 @@ function commit(app: App, result: Result, now: number, onError: (e: MoveError) =
   const landed = landedOn(app.game, result.state);
   if (landed !== undefined) next = { ...next, cursor: pile.tableau(landed) };
   // The first card moved makes this a played game. Drawing alone only looks through the stock.
-  if (next.play === 'fresh' && !isDraw) next = { ...next, play: 'counted', stats: recordStart(next.stats, next.game.drawMode, { seed: next.game.seed, at: now, limit: dealLimit(next) }) };
+  if (next.play === 'fresh' && !isDraw) next = { ...next, play: 'counted', gameAt: now };
   if (canAutoComplete(next.game)) {
     next = {
       ...next,
@@ -698,7 +823,7 @@ function watchStall(before: App, after: App): App {
 /** `h`: the solver's next move, but only once the player has gone round the stock without one. */
 function showHint(app: App): App {
   if (!app.stalled) return say(app, 'Hints open up once you go through the whole stock without a move.');
-  if (app.status === 'checking') return say(app, 'Still checking this position. Press h again in a moment.');
+  if (app.status === 'checking') return say(app, 'Still checking this position. Ask again in a moment.');
   const move = app.hint?.version === app.version ? app.hint.move : undefined;
   if (app.status !== 'winnable' || !move) return say(app, 'No hint here: a win from this position is not confirmed.');
   const g = app.game;
@@ -751,7 +876,7 @@ function toFoundation(app: App, now: number): App {
 
 function fresh(app: App, game: KlondikeState, verified: boolean, message: string): App {
   const next = createApp(game, { ascii: app.ascii, compact: app.compact, verified, redeals: app.redeals, stats: app.stats, canShare: app.canShare });
-  return { ...next, version: app.version + 1, nextDrawMode: app.nextDrawMode, message };
+  return { ...next, outbox: app.outbox, version: app.version + 1, nextDrawMode: app.nextDrawMode, message };
 }
 
 function newGame(app: App, dealer: Dealer, drawMode = app.nextDrawMode, now?: number): App {
@@ -767,7 +892,22 @@ function newGame(app: App, dealer: Dealer, drawMode = app.nextDrawMode, now?: nu
 function restart(app: App): App {
   // The same deal goes through the same positions: what is known about them still holds.
   const next = recall({ ...fresh(app, deal(app.game.seed, app.game.drawMode, app.redeals), app.verified, 'Same deal, from the start.'), known: app.known });
-  return app.play === 'counted' ? { ...next, play: 'counted' } : next;
+  return app.play === 'counted' ? { ...next, play: 'counted', gameId: app.gameId, ...(app.gameAt === undefined ? {} : { gameAt: app.gameAt }) } : next;
+}
+
+/** Restart, after asking; not before a move, and not once the deal is won. */
+function askRestart(app: App): App {
+  if (app.game.moves === 0 && app.history.length === 0) return say(app, 'This deal is already at the start.');
+  // A deal won stays won: it is not played again.
+  if (app.play === 'won') return say(app, 'This deal is won. Choose New game in the menu.');
+  return { ...app, held: undefined, dialog: 'restart' };
+}
+
+/** A deal proven winnable in one mode may not be in the other, so an untouched deal is replaced; else the next deal switches. */
+function switchDraw(app: App, dealer: Dealer, now: number): App {
+  const nextDrawMode: DrawMode = app.nextDrawMode === 1 ? 3 : 1;
+  if (untouched(app) && app.finishedAt === undefined) return { ...newGame(app, dealer, nextDrawMode, now), message: `Draw ${nextDrawMode}.` };
+  return { ...app, nextDrawMode, message: `Draw ${nextDrawMode} from the next game.` };
 }
 
 function backToWinnable(app: App): App {
@@ -869,9 +1009,10 @@ export function offerShare(app: App): App {
 }
 
 /** The answer came back from the server: the games sent are marked, or the batch waits for the next start. */
-export function applyShared(app: App, games: readonly GameRecord[], error?: string): App {
+export function applyShared(app: App, ids: readonly string[], error?: string): App {
   if (error) return say(app, `Results not sent: ${error}. Trying again next start.`);
-  return say({ ...app, stats: markShared(app.stats, games) }, `Sent ${games.length.toLocaleString('en-US')} games. Thank you for helping research!`);
+  const stats = markShared(app.stats, ids);
+  return say({ ...app, stats, outbox: [...app.outbox, { sent: ids }] }, `Sent ${ids.length.toLocaleString('en-US')} games. Thank you for helping research!`);
 }
 
 /** The opening line of a deal, saying when it was lost before if it was. */
@@ -902,8 +1043,10 @@ function handleDeals(app: App, screen: DealsScreen, key: string, now: number): A
       const index = Math.min(recent.length - 1, Math.max(0, screen.index + (key === 'down' ? 1 : -1)));
       return set({ typed: '', index });
     }
-    case 'd':
+    case 'left':
+    case 'right':
       return set({ drawMode: screen.drawMode === 1 ? 3 : 1 });
+    case 'space':
     case 'enter': {
       const pick = screen.typed ? { seed: Number(screen.typed), drawMode: screen.drawMode } : recent[screen.index];
       if (!pick) return app;
@@ -915,53 +1058,37 @@ function handleDeals(app: App, screen: DealsScreen, key: string, now: number): A
       return playSeed(closed, pick.seed, pick.drawMode, now);
     }
     case 'escape':
-    case 'g':
       return { ...app, deals: undefined };
     default:
       return app;
   }
 }
 
-/** Keys while a dialog is up. Anything not offered is ignored. */
+/**
+ * Keys while a dialog is up: up and down choose, enter or space takes the
+ * choice, esc backs out. Anything else is ignored.
+ */
 function handleDialog(app: App, key: string, dealer: Dealer, now: number): App {
-  const close = { ...app, dialog: undefined };
-  switch (app.dialog) {
-    case 'share': {
-      if (key === 'y' || key === 'enter') return say({ ...close, stats: acceptShare(app.stats) }, 'Thank you! Sending your results...');
-      if (key === 'n' || key === 'escape') {
-        const next = (Math.floor(finishedGames(app.stats) / SHARE_EVERY) + 1) * SHARE_EVERY;
-        return say({ ...close, stats: declineShare(app.stats) }, `Not sent. You will be asked again at ${next.toLocaleString('en-US')} games.`);
-      }
-      return app;
-    }
-    case 'quit':
-      if (key === 'y' || key === 'enter' || key === 'x') return { ...app, quit: true };
-      if (key === 'escape') return { ...app, dialog: app.quitFrom, quitFrom: undefined, message: app.quitFrom ? app.message : 'Carry on.' };
-      return app;
-    case 'restart':
-      if (key === 'y' || key === 'enter' || key === 'f2') return restart(app);
-      if (key === 'escape') return { ...close, message: 'Carry on.' };
-      return app;
-    case 'new':
-      if (key === 'y' || key === 'enter' || key === 'n') return newGame(app, dealer, undefined, now);
-      if (key === 'escape') return { ...close, message: 'Carry on.' };
-      return app;
-    case 'lost':
-      if (key === 'z' || key === 'backspace') return backToWinnable(app);
-      if (key === 'f2') return restart(app);
-      if (key === 'n') return newGame(app, dealer, undefined, now);
-      if (key === 'x') return { ...app, dialog: 'quit', quitFrom: 'lost' };
-      if (key === 'escape') return { ...close, playingOn: true, message: 'Playing on. This deal can no longer be won.' };
-      return app;
-    case 'won':
-      if (key === 'n' || key === 'enter') return newGame(app, dealer, undefined, now);
-      if (key === 's') return { ...close, showStats: true };
-      if (key === 'g') return openDeals(close);
-      if (key === 'x') return { ...app, dialog: 'quit', quitFrom: 'won' };
-      if (key === 'escape') return { ...close, message: 'n for a new deal, g to choose one.' };
-      return app;
+  const spec = specOf(app);
+  if (!spec) return close(app);
+  const n = spec.choices.length;
+  switch (key) {
+    case 'up':
+    case 'down':
+      return { ...app, choice: (Math.min(app.choice, n - 1) + (key === 'down' ? 1 : n - 1)) % n };
+    case 'enter':
+    case 'space':
+      // A key already on its way when the dialog came up was meant for the board.
+      if (app.dialogAt !== undefined && now >= app.dialogAt && now - app.dialogAt < DIALOG_GUARD_MS) return app;
+      return spec.choices[Math.min(app.choice, n - 1)]!.act(app, now, dealer);
+    case 'escape':
+      return spec.cancel(app, now, dealer);
+    case 'z':
+    case 'backspace':
+      // After a loss, undo still means going back.
+      return app.dialog === 'lost' ? backToWinnable(app) : app;
     default:
-      return close;
+      return app;
   }
 }
 
@@ -970,7 +1097,9 @@ function handleDialog(app: App, key: string, dealer: Dealer, now: number): App {
  * both are passed in so tests stay deterministic.
  */
 export function handleKey(app: App, key: string, now: number, dealer: Dealer): App {
-  return trackColumn(app, press(app, key, now, dealer));
+  const next = trackColumn(app, press(app, key, now, dealer));
+  // A dialog that comes up starts on its first choice.
+  return next.dialog !== app.dialog && next.dialog !== undefined ? { ...next, choice: 0, dialogAt: now } : next;
 }
 
 function press(app: App, key: string, now: number, dealer: Dealer): App {
@@ -978,7 +1107,7 @@ function press(app: App, key: string, now: number, dealer: Dealer): App {
   // A key press means the player is here, even if the terminal never said focus came back.
   app = focus(app, now);
   if (key === 'focus-in') return app;
-  if (key === 'ctrl+c') return { ...app, quit: true };
+  if (key === 'ctrl+c' || key === 'ctrl+q') return { ...app, quit: true };
   if (app.showHelp) return { ...app, showHelp: false };
   if (app.showStats) return { ...app, showStats: false };
   // Any key cuts the ceremony short.
@@ -999,8 +1128,6 @@ function press(app: App, key: string, now: number, dealer: Dealer): App {
     return app.held ? drop(app, target, now) : pick(app, target);
   }
 
-  // Nothing to give up while no card has moved: a new deal needs no asking.
-  const untouched = app.play !== 'counted' || app.finishedAt !== undefined;
   switch (key) {
     case 'left':
     case 'right':
@@ -1019,38 +1146,19 @@ function press(app: App, key: string, now: number, dealer: Dealer): App {
       return autoFrom({ ...app, held: undefined }, from, now, app.held ? app.held.count : app.selected);
     }
     case 'escape':
-      // Esc first puts held cards back; with nothing in hand it switches card size.
+      // Esc first puts held cards back; with nothing in hand it brings up the menu.
       if (app.held) return { ...app, held: undefined, message: 'Put back.' };
-      return { ...app, compact: !app.compact, message: app.compact ? 'Large cards.' : 'Compact cards. Esc for large ones.' };
+      return { ...app, dialog: 'menu' };
+    case 'tab':
+      return { ...app, compact: !app.compact, message: app.compact ? 'Large cards.' : 'Compact cards. Tab for large ones.' };
     case 'z':
     case 'backspace': {
       const prev = app.history[app.history.length - 1];
       if (!prev) return say(app, 'Nothing to undo.');
       return { ...moved(app, prev, app.history.slice(0, -1)), finishedAt: undefined, message: 'Undone.' };
     }
-    case 'n':
-      return untouched ? newGame(app, dealer, undefined, now) : { ...app, held: undefined, dialog: 'new' };
-    case 'f2':
-      if (app.game.moves === 0) return say(app, 'This deal is already at the start.');
-      // A deal won stays won: it is not played again.
-      if (app.play === 'won') return say(app, 'This deal is won. n for a new one.');
-      return { ...app, held: undefined, dialog: 'restart' };
-    case 'd': {
-      const nextDrawMode: DrawMode = app.nextDrawMode === 1 ? 3 : 1;
-      // A deal proven winnable in one mode may not be in the other, so an untouched deal is replaced.
-      if (app.game.moves === 0) return { ...newGame(app, dealer, nextDrawMode), message: `Draw ${nextDrawMode}.` };
-      return { ...app, nextDrawMode, message: `Draw ${nextDrawMode} from the next game.` };
-    }
     case '?':
       return { ...app, showHelp: true };
-    case 'h':
-      return showHint(app);
-    case 's':
-      return { ...app, held: undefined, showStats: true };
-    case 'g':
-      return openDeals(app);
-    case 'x':
-      return { ...app, held: undefined, dialog: 'quit' };
     default:
       return app;
   }

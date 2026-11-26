@@ -3,20 +3,23 @@
  * Returns the games to store, or an error to send back.
  */
 
-/** The smallest batch accepted: the game only ever offers to send whole thousands. */
-export const MIN_BATCH = 1000;
-/** A generous ceiling: someone who said no many times in a row. */
-export const MAX_BATCH = 20_000;
+/** The smallest batch accepted: the game only ever offers to send whole hundreds. */
+export const MIN_BATCH = 100;
+/** The game sends at most this many at once; more wait for its next batch. */
+export const MAX_BATCH = 1000;
 /** Body size limit, well above what MAX_BATCH games take. */
-export const MAX_BYTES = 4 * 1024 * 1024;
+export const MAX_BYTES = 512 * 1024;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** A game's own random name, given by the game. */
+const GAME_ID = /^[0-9a-f]{8,32}$/;
 const count = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
 
 /** One game, or undefined if anything about it is off. */
 function game(g) {
   if (typeof g !== 'object' || g === null) return undefined;
+  if (typeof g.id !== 'string' || !GAME_ID.test(g.id)) return undefined;
   if (!count(g.seed, 0xffff_ffff) || (g.draw !== 1 && g.draw !== 3)) return undefined;
   if (!(g.limit === null || count(g.limit, 99))) return undefined;
   if (g.result !== 'won' && g.result !== 'lost') return undefined;
@@ -26,6 +29,7 @@ function game(g) {
   if (g.level !== undefined && !count(g.level, 3)) return undefined;
   if (typeof g.day !== 'string' || !DAY.test(g.day)) return undefined;
   return {
+    id: g.id,
     seed: g.seed,
     draw: g.draw,
     limit: g.limit,

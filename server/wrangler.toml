@@ -5,5 +5,4 @@ compatibility_date = "2026-11-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "soliterminal"
-# Fill in after `npx wrangler d1 create soliterminal`:
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+database_id = "9aad89d7-6ab6-4a30-8470-fb01dd7f35e1"

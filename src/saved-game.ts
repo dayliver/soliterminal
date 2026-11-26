@@ -3,12 +3,17 @@
  * the next start carries on where it stopped. The file also lets other tools
  * see the board without asking the running game.
  *
+ * There is one such file, and whichever window saved last wins it. A game
+ * played in two windows at once keeps one name (its id), so however many of
+ * them finish it, the statistics count it once.
+ *
  * Only the deal and the moves since are stored, as steps that replay with the
  * game's own rules, so the file stays small and a damaged one is caught.
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type App, playTime } from './app.ts';
+import { newGameId } from './stats.ts';
 import type { Card } from './core/card.ts';
 import {
   type DrawMode,
@@ -29,10 +34,12 @@ import {
 export type Step = { readonly draw: true } | { readonly from: PileId; readonly to: PileId; readonly count: number };
 
 export interface SavedGame {
-  readonly version: 1;
-  /** The process that wrote it, so a second game running at once leaves it alone. */
-  readonly pid: number;
+  readonly version: 2;
   readonly savedAt: string;
+  /** The game's name in the statistics; see {@link GameRecord.id}. */
+  readonly id: string;
+  /** When it started counting (its first card moved), if it has. */
+  readonly at?: number;
   readonly seed: number;
   readonly drawMode: DrawMode;
   /** Redeals the deal started with; `null` for no limit (JSON has no Infinity). */
@@ -127,16 +134,18 @@ export function replaySaved(saved: SavedGame): KlondikeState[] | undefined {
  * What to write for `app`, or undefined when there is nothing to keep: a
  * finished game, or one whose path cannot be put into steps.
  */
-export function snapshot(app: App, now: number, pid = process.pid): SavedGame | undefined {
+export function snapshot(app: App, now: number): SavedGame | undefined {
   if (app.finishedAt !== undefined || app.play === 'won') return undefined;
   const states = [...app.history, app.game];
   const first = states[0]!;
   const steps = stepsOf(states);
   if (!steps || !samePosition(first, deal(first.seed, first.drawMode, first.redealsLeft))) return undefined;
+  const w = winnableAt(app, states);
   return {
-    version: 1,
-    pid,
+    version: 2,
     savedAt: new Date(now).toISOString(),
+    id: app.gameId,
+    ...(app.gameAt === undefined ? {} : { at: app.gameAt }),
     seed: first.seed,
     drawMode: first.drawMode,
     redeals: Number.isFinite(first.redealsLeft) ? first.redealsLeft : null,
@@ -144,7 +153,7 @@ export function snapshot(app: App, now: number, pid = process.pid): SavedGame | 
     play: app.play,
     ms: Math.round(playTime(app, now)),
     steps,
-    ...(winnableAt(app, states) === undefined ? {} : { winnable: winnableAt(app, states) }),
+    ...(w === undefined ? {} : { winnable: w }),
   };
 }
 
@@ -176,15 +185,17 @@ const isStep = (s: unknown): s is Step => {
 export function parseSavedGame(data: unknown): SavedGame | undefined {
   if (typeof data !== 'object' || data === null) return undefined;
   const o = data as Record<string, unknown>;
-  if (o.version !== 1) return undefined;
+  // Version 1 also named the process that wrote it; that is no longer needed.
+  if (o.version !== 1 && o.version !== 2) return undefined;
   if (!Number.isInteger(o.seed) || (o.drawMode !== 1 && o.drawMode !== 3)) return undefined;
   if (o.redeals !== null && !(Number.isInteger(o.redeals) && (o.redeals as number) >= 0)) return undefined;
   if (o.play !== 'fresh' && o.play !== 'counted') return undefined;
   if (!Array.isArray(o.steps) || !o.steps.every(isStep)) return undefined;
   return {
-    version: 1,
-    pid: Number.isInteger(o.pid) ? (o.pid as number) : 0,
+    version: 2,
     savedAt: typeof o.savedAt === 'string' ? o.savedAt : '',
+    id: typeof o.id === 'string' && /^[0-9a-f]{8,32}$/.test(o.id) ? o.id : newGameId(),
+    ...(Number.isInteger(o.at) && (o.at as number) > 0 ? { at: o.at as number } : {}),
     seed: o.seed as number,
     drawMode: o.drawMode,
     redeals: o.redeals as number | null,
@@ -223,17 +234,5 @@ export function removeSavedGame(path: string): void {
     rmSync(path, { force: true });
   } catch {
     // Nothing to do: the next save or start sorts it out.
-  }
-}
-
-/** Whether another live process wrote this game: then it is that game's, not ours. */
-export function ownedElsewhere(saved: SavedGame, pid = process.pid): boolean {
-  if (!saved.pid || saved.pid === pid) return false;
-  try {
-    process.kill(saved.pid, 0);
-    return true;
-  } catch (e) {
-    // EPERM: the process exists but belongs to someone else.
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
 }

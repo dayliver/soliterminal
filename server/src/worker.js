@@ -1,17 +1,18 @@
 /**
  * Takes shared soliterminal results and keeps them in D1 for Klondike research.
  *
- *   POST /v1/games   a batch from the game (1,000 games or more)
+ *   POST /v1/games   a batch from the game (100 to 1,000 games)
  *   GET  /v1/summary games, wins and installations so far
  *
- * One batch per installation a day: the game only asks every thousand games,
- * so anything more often is not the game.
+ * One batch per installation a day: the game only asks every hundred games,
+ * so anything more often is not the game. A game sent twice is stored once,
+ * by its installation and its own id.
  */
 import { MAX_BYTES, validateBatch } from './validate.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** D1 allows 100 bound values per statement: 11 columns, so 9 rows. */
-const ROWS_PER_INSERT = 9;
+/** D1 allows 100 bound values per statement: 12 columns, so 8 rows. */
+const ROWS_PER_INSERT = 8;
 
 const json = (status, data) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -48,11 +49,11 @@ export default {
     for (let i = 0; i < batch.games.length; i += ROWS_PER_INSERT) {
       const rows = batch.games.slice(i, i + ROWS_PER_INSERT);
       const values = [];
-      for (const g of rows) values.push(batch.id, g.seed, g.draw, g.limit, g.result, g.ms, g.moves, g.redeals, g.lostAt, g.level, g.day);
+      for (const g of rows) values.push(batch.id, g.id, g.seed, g.draw, g.limit, g.result, g.ms, g.moves, g.redeals, g.lostAt, g.level, g.day);
       statements.push(
         env.DB.prepare(
-          `INSERT OR IGNORE INTO games (install_id, seed, draw_mode, redeal_limit, result, ms, moves, redeals, lost_at, level, day) VALUES ${rows
-            .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          `INSERT OR IGNORE INTO games (install_id, game_id, seed, draw_mode, redeal_limit, result, ms, moves, redeals, lost_at, level, day) VALUES ${rows
+            .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
             .join(', ')}`,
         ).bind(...values),
       );

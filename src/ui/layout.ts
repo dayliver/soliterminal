@@ -41,8 +41,10 @@ export interface View {
 export interface Dialog {
   readonly title: string;
   readonly lines: readonly string[];
-  /** Key and what it does, one per row. */
-  readonly choices: readonly (readonly [string, string])[];
+  /** What each choice does, one per row. */
+  readonly choices: readonly string[];
+  /** The highlighted choice: enter or space takes it. */
+  readonly selected: number;
   /** Bad news, drawn in red. */
   readonly danger?: boolean;
 }
@@ -90,17 +92,17 @@ const FOOTER_ROWS = 5; // blank, message, divider, two status lines
 /** Box characters are only for dialogs and the divider; cards have none. */
 interface Glyphs {
   tl: string; tr: string; bl: string; br: string; h: string; v: string;
-  recycle: string; none: string; divider: string; sep: string; prompt: string; yes: string; wait: string; warn: string;
+  recycle: string; none: string; divider: string; sep: string; prompt: string; yes: string; wait: string; warn: string; updown: string;
 }
 
 const BOX: Glyphs = {
   tl: '╭', tr: '╮', bl: '╰', br: '╯', h: '─', v: '│',
-  recycle: '↺', none: '×', divider: '─', sep: '·', prompt: '›', yes: '✓', wait: '…', warn: '⚠',
+  recycle: '↺', none: '×', divider: '─', sep: '·', prompt: '›', yes: '✓', wait: '…', warn: '⚠', updown: '↑↓',
 };
 
 const ASCII: Glyphs = {
   tl: '+', tr: '+', bl: '+', br: '+', h: '-', v: '|',
-  recycle: 'O', none: 'x', divider: '-', sep: '-', prompt: '>', yes: 'ok', wait: '..', warn: '!',
+  recycle: 'O', none: 'x', divider: '-', sep: '-', prompt: '>', yes: 'ok', wait: '..', warn: '!', updown: 'up/down',
 };
 
 /** Rows a column of face-down cards takes: one each, or one in total when folded. */
@@ -173,9 +175,9 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
     } else if (view.cursor.kind !== 'stock' && samePile(view.cursor, target)) {
       bg = 'cursor';
     }
-    // Exact foundation keys stay quiet unless active; the status bar promotes F9 instead.
+    // Exact foundation keys stay quiet unless active; the status bar promotes i instead.
     const fg = target.kind === 'foundation' && bg === 'none' ? 'dim' : 'key';
-    // With large cards, one-character keys are fullwidth too (｀ １ ｑ…); F5-F8 already fill two cells.
+    // With large cards, keys are fullwidth too (ｑ ｗ ａ…), as big as the ranks.
     const plain = keyLabel(target);
     const label = compact || ascii || plain.length > 1 ? plain : fullwidth(plain);
     buf.put(x + Math.floor((geo.card - textWidth(label)) / 2), y, label, { fg, bg });
@@ -266,8 +268,9 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
   buf.put(0, footer + 2, g.divider.repeat(width), { fg: 'dim' });
   if (view.record) drawRecord(buf, footer + 2, state.drawMode, view.record, view.lostBefore);
   const status: [string, string][][] = [
-    [['~', 'draw'], ['1', 'waste'], ['q-u', 'columns'], ['F9', 'to foundation']],
-    [['arrows', 'select'], ['space', 'pick/drop'], ['z', 'undo'], ['?', 'help'], ['x', 'quit']],
+    [['q', 'draw'], ['w', 'waste'], ['a-j', 'columns'], ['i', 'to foundation'], ['z', 'undo']],
+    // Help is in the menu; the welcome line names ? too. Both rows fit MIN_WIDTH.
+    [['arrows', 'select'], ['space', 'pick/drop'], ['tab', 'card size'], ['esc', 'menu']],
   ];
   status.forEach((items, row) => {
     let x = 1;
@@ -408,13 +411,14 @@ function fanPieces(fan: readonly Card[], look: Look, room: number): string[] {
  * beside it, with a blank row under it so none peeks out below either.
  */
 function drawDialog(buf: ScreenBuffer, d: Dialog, g: Glyphs, left: number, board: number, bottom: number): void {
-  const keyWidth = Math.max(...d.choices.map(([k]) => k.length));
-  const rows = [...d.lines, '', ...d.choices.map(([k, label]) => `${k.padEnd(keyWidth)}  ${label}`)];
+  const hint = `${g.updown} choose  enter select  esc back`;
+  const rows = [...d.lines, ...(d.lines.length > 0 ? [''] : []), ...d.choices.map((label) => `${g.prompt} ${label}`), '', hint];
   const needed = Math.max(textWidth(d.title) + 6, ...rows.map((r) => textWidth(r) + 4));
   const boxWidth = Math.min(buf.width - 2, Math.max(board, needed));
   const x = Math.max(1, Math.min(left - Math.floor((boxWidth - board) / 2), buf.width - 1 - boxWidth));
   const y = Math.max(1, Math.min(ROW.tableauKeys, bottom - rows.length - 3));
   const edge = { fg: d.danger ? 'red' : 'text' } as const;
+  const first = d.lines.length > 0 ? d.lines.length + 1 : 0;
 
   const titled = `${g.h} ${d.title} `;
   buf.put(x, y, g.tl, edge);
@@ -426,13 +430,16 @@ function drawDialog(buf: ScreenBuffer, d: Dialog, g: Glyphs, left: number, board
   rows.forEach((text, i) => {
     const ry = y + 1 + i;
     buf.put(x, ry, g.v + ' '.repeat(boxWidth - 2) + g.v, edge);
-    const choice = i - d.lines.length - 1;
-    if (choice >= 0) {
-      const [k, label] = d.choices[choice]!;
-      buf.put(x + 2, ry, k, { fg: 'key', bold: true });
-      buf.put(x + 2 + keyWidth + 2, ry, label, { fg: 'text' });
+    const choice = i - first;
+    if (choice >= 0 && choice < d.choices.length) {
+      const on = choice === d.selected;
+      // The chosen row is a bar across the box, its marker in the key color.
+      if (on) buf.put(x + 1, ry, ' '.repeat(boxWidth - 2), { bg: 'cursor' });
+      const bg = on ? 'cursor' : 'none';
+      const mx = buf.put(x + 2, ry, on ? g.prompt : ' ', { fg: 'key', bold: true, bg });
+      buf.put(mx + 1, ry, d.choices[choice]!, { fg: 'text', bold: on, bg });
     } else {
-      buf.put(x + 2, ry, text, { fg: 'text' });
+      buf.put(x + 2, ry, text, { fg: i === rows.length - 1 ? 'dim' : 'text' });
     }
   });
   buf.put(x, y + rows.length + 1, g.bl + g.h.repeat(boxWidth - 2) + g.br, edge);
