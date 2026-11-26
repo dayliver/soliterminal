@@ -12,6 +12,7 @@
  * their computer: no names, paths, addresses or clock times beyond the day.
  */
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_REDEALS } from './core/klondike.ts';
 import { type GameRecord, type ShareState, type Stats, withSent } from './stats.ts';
 
 /** Games per question, and the smallest batch ever sent. */
@@ -80,8 +81,6 @@ export interface SharePayload {
   readonly games: readonly SharedGame[];
 }
 
-const DEFAULT_LIMIT = 3;
-
 /** The batch waiting to go out, if the player agreed to send one. */
 export function sharePayload(stats: Stats, client: string): { payload: SharePayload; games: GameRecord[] } | undefined {
   if (!stats.share?.pending) return undefined;
@@ -93,7 +92,8 @@ export function sharePayload(stats: Stats, client: string): { payload: SharePayl
       id: g.id,
       seed: g.seed,
       draw: g.drawMode,
-      limit: g.limit === undefined ? DEFAULT_LIMIT : g.limit,
+      // A record from before limits were kept was played with the default.
+      limit: g.limit === undefined ? DEFAULT_REDEALS : g.limit,
       result: g.result,
       ms: g.ms,
       moves: g.moves,

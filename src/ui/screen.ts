@@ -1,5 +1,5 @@
 /** What a cell's text is for. The theme turns these into actual colors. */
-export type Fg = 'text' | 'border' | 'red' | 'black' | 'back' | 'dim' | 'key' | 'header' | 'message';
+export type Fg = 'text' | 'red' | 'black' | 'back' | 'dim' | 'key' | 'header' | 'message';
 /**
  * Background of a cell: a card face, a card back, or a highlight. `hold` and
  * `cursor` go on key labels only. `chosen` is the one highlight on a card: the

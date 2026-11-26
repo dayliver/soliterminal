@@ -299,6 +299,18 @@ describe('autoMove (same key twice)', () => {
     const s = board({ tableau: ['', '| KD QS'] });
     assert.deepEqual(destinations(s, t(1)), []);
     assert.deepEqual(autoMove(s, t(1)), { ok: false, error: 'no-move' });
+    // The same goes for exactly those cards, chosen with the arrows.
+    assert.deepEqual(destinations(s, t(1), 2), []);
+  });
+
+  test('with a count, only places that take exactly that many cards', () => {
+    const s = board({ tableau: ['| 9H 8S AD', '| 9D', '| 2C'], foundations: [] });
+    // However many fit: the ace alone goes home or on the 2, the 8 with it goes on the 9.
+    assert.deepEqual(destinations(s, t(0)), [f(0), t(1), t(2)]);
+    assert.deepEqual(destinations(s, t(0), 1), [f(0), t(2)]);
+    assert.deepEqual(destinations(s, t(0), 2), [t(1)]);
+    assert.deepEqual(destinations(s, t(0), 3), []);
+    assert.deepEqual(destinations(s, t(0), 4), []); // more than the column has
   });
 
   test('moves the waste card too', () => {

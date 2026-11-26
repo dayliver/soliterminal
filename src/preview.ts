@@ -1,5 +1,6 @@
 /**
- * Prints one static frame of a freshly dealt game and exits. No input yet.
+ * Prints one static frame of a freshly dealt game and exits: a look at the
+ * drawing without a terminal to play in.
  *
  *   node src/preview.ts [--seed N] [--draw 1|3] [--compact] [--ascii] [--width N] [--select]
  */
@@ -37,7 +38,7 @@ const buf = renderKlondike(
   {
     cursor: values.select ? pile.tableau(6) : pile.tableau(0),
     held: values.select ? { from: pile.waste } : undefined,
-    message: `Seed ${seed}. Static preview, keys are not wired up yet.`,
+    message: `Seed ${seed}. A static preview: run soliterminal to play.`,
     elapsedMs: 0,
   },
   { ascii: values.ascii, compact: values.compact, width: values.width ? Number(values.width) : undefined },

@@ -3,12 +3,12 @@ import { type KlondikeState, type PileId, TABLEAU_COLUMNS, pile, samePile } from
 import { keyLabel } from './keymap.ts';
 import { type Bg, ScreenBuffer, textWidth } from './screen.ts';
 import { type ModeStats, winRate } from '../stats.ts';
-import { formatWhen } from './help.ts';
+import { formatTime, formatWhen } from './help.ts';
 
-/** UI-only state that sits next to the game state. */
 /** Where the cursor can be: any pile, or the stock. */
 export type CursorSpot = PileId | { readonly kind: 'stock' };
 
+/** UI-only state that sits next to the game state. */
 export interface View {
   readonly cursor: CursorSpot;
   /** Cards picked up and waiting for a destination. */
@@ -81,7 +81,6 @@ function geometry(compact: boolean): Geometry {
 
 export const LARGE = geometry(false); // board 54 wide
 export const COMPACT = geometry(true); // board 40 wide
-export const CARD_WIDTH = LARGE.card;
 export const COLUMN_PITCH = LARGE.pitch;
 export const BOARD_WIDTH = LARGE.board;
 export const MIN_WIDTH = 56;
@@ -123,13 +122,6 @@ export function minScreenHeight(state: KlondikeState): number {
   return screenHeight(state, true);
 }
 
-function formatTime(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const mm = String(Math.floor(total / 60)).padStart(2, '0');
-  const ss = String(total % 60).padStart(2, '0');
-  return `${mm}:${ss}`;
-}
-
 export function renderKlondike(state: KlondikeState, view: View, options: LayoutOptions = {}): ScreenBuffer {
   const ascii = options.ascii ?? false;
   const compact = options.compact ?? false;
@@ -166,7 +158,7 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
   };
   const markRank = (rank: 1 | 13) => (compact ? rankLabel(rank) : rankGlyph(rank, ascii));
   /** The key label above the pile at `x` shows where cards are held (strong) and the cursor (weak). */
-  const key = (x: number, y: number, target: PileId | { readonly kind: 'stock' }) => {
+  const key = (x: number, y: number, target: CursorSpot) => {
     let bg: Bg = 'none';
     if (target.kind === 'stock') {
       if (view.cursor.kind === 'stock') bg = 'cursor';
@@ -188,7 +180,7 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
    */
   const chosenIn = (i: number): number | undefined => {
     const col = state.tableau[i]!;
-    const here = (p: PileId | { readonly kind: 'stock' }) => p.kind === 'tableau' && p.index === i;
+    const here = (p: CursorSpot) => p.kind === 'tableau' && p.index === i;
     const n = view.held ? (here(view.held.from) ? view.held.count : undefined) : here(view.cursor) ? view.selected : undefined;
     return n === undefined ? undefined : col.up.length - n;
   };
@@ -223,9 +215,9 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
   else slot(colX(0), ROW.topCards, state.waste.length > 0 ? redealMark(state.redealsLeft, g) : ' ');
   // Redeals left, always in view just under the stock: ↺3, red once none are left.
   if (Number.isFinite(state.redealsLeft)) {
-    const left = g.recycle + Math.min(state.redealsLeft, 99);
+    const mark = g.recycle + Math.min(state.redealsLeft, 99);
     const none = state.redealsLeft <= 0;
-    buf.put(colX(0) + Math.floor((geo.card - textWidth(left)) / 2), ROW.topCards + 1, left, { fg: none ? 'red' : 'dim', bold: none });
+    buf.put(colX(0) + Math.floor((geo.card - textWidth(mark)) / 2), ROW.topCards + 1, mark, { fg: none ? 'red' : 'dim', bold: none });
   }
 
   key(colX(1), ROW.topKeys, pile.waste);
@@ -281,8 +273,8 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
     });
   });
 
-  if (view.celebration !== undefined) drawConfetti(buf, view.celebration, height - FOOTER_ROWS, ascii);
-  if (view.dialog) drawDialog(buf, view.dialog, g, left, geo.board, height - FOOTER_ROWS);
+  if (view.celebration !== undefined) drawConfetti(buf, view.celebration, footer, ascii);
+  if (view.dialog) drawDialog(buf, view.dialog, g, left, geo.board, footer);
   return buf;
 }
 

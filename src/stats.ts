@@ -207,13 +207,14 @@ export function winRate(m: ModeStats): number {
 
 const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
 const isLevel = (v: unknown): v is Level => v === 0 || v === 1 || v === 2 || v === 3;
-const ID = /^[0-9a-f]{8,32}$/;
+/** What a game's id looks like: see {@link newGameId}. */
+export const GAME_ID = /^[0-9a-f]{8,32}$/;
 
 /** One game as read back, or undefined if anything about it is off. `id` stands in for a record without one (old files). */
 export function parseGame(x: unknown, id?: string): GameRecord | undefined {
   if (typeof x !== 'object' || x === null) return undefined;
   const g = x as Record<string, unknown>;
-  const gid = typeof g.id === 'string' && ID.test(g.id) ? g.id : id;
+  const gid = typeof g.id === 'string' && GAME_ID.test(g.id) ? g.id : id;
   if (gid === undefined) return undefined;
   if (!Number.isInteger(g.seed) || (g.seed as number) < 0 || (g.drawMode !== 1 && g.drawMode !== 3)) return undefined;
   if (g.result !== 'won' && g.result !== 'lost') return undefined;

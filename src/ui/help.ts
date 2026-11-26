@@ -48,8 +48,8 @@ export function renderHelp(width: number, height: number, ascii = false): Screen
   return buf;
 }
 
-function formatTime(ms: number | undefined): string {
-  if (ms === undefined) return '-';
+/** Time on the clock, like 03:41. */
+export function formatTime(ms: number): string {
   const s = Math.floor(ms / 1000);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
@@ -64,7 +64,7 @@ export function renderStats(width: number, height: number, stats: Stats, ascii =
     ['Win rate', (m) => `${winRate(m)}%`],
     ['Streak', (m) => String(m.streak)],
     ['Longest streak', (m) => String(m.bestStreak)],
-    ['Best time', (m) => formatTime(m.bestMs)],
+    ['Best time', (m) => (m.bestMs === undefined ? '-' : formatTime(m.bestMs))],
     ['Fewest moves', (m) => (m.fewestMoves === undefined ? '-' : String(m.fewestMoves))],
   ];
   const col = [20, 32];

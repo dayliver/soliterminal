@@ -9,6 +9,7 @@ import { createApp, viewOf } from '../src/app.ts';
 import { judge } from '../src/core/solver.ts';
 import { loadSavedGame, replaySaved, savedGamePath } from '../src/saved-game.ts';
 import { statsPath } from '../src/stats-file.ts';
+import { formatTime } from '../src/ui/help.ts';
 import { renderKlondike } from '../src/ui/layout.ts';
 
 const { values } = parseArgs({ options: { ascii: { type: 'boolean', default: false }, 'no-judge': { type: 'boolean', default: false } } });
@@ -25,14 +26,11 @@ if (!states) {
   process.exit(1);
 }
 const game = states[states.length - 1]!;
-const s = Math.floor(saved.ms / 1000);
-const clock = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-console.log(`Seed ${saved.seed}, Draw ${saved.drawMode}, ${game.moves} moves, ${clock} on the clock; saved ${saved.savedAt}.`);
+console.log(`Seed ${saved.seed}, Draw ${saved.drawMode}, ${game.moves} moves, ${formatTime(saved.ms)} on the clock; saved ${saved.savedAt}.`);
 
 const judged = values['no-judge'] ? undefined : judge(game, { thorough: true });
 const view = viewOf(createApp(game), 0);
-const status = judged?.verdict;
-console.log(renderKlondike(game, { ...view, status, message: undefined, elapsedMs: saved.ms }, { ascii: values.ascii }).toText().trimEnd());
+console.log(renderKlondike(game, { ...view, status: judged?.verdict, message: undefined, elapsedMs: saved.ms }, { ascii: values.ascii }).toText().trimEnd());
 
 if (judged) {
   const { verdict, next, ms } = judged;

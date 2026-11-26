@@ -10,7 +10,6 @@ export const ansi = {
   focusReportingOff: '\x1b[?1004l',
   showCursor: '\x1b[?25h',
   clear: '\x1b[2J',
-  home: '\x1b[H',
   reset: '\x1b[0m',
   /** Zero-based column and row. */
   moveTo: (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`,

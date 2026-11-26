@@ -10,28 +10,14 @@
  * Only the deal and the moves since are stored, as steps that replay with the
  * game's own rules, so the file stays small and a damaged one is caught.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type App, playTime } from './app.ts';
-import { newGameId } from './stats.ts';
-import type { Card } from './core/card.ts';
-import {
-  type DrawMode,
-  type KlondikeState,
-  type PileId,
-  type Result,
-  FOUNDATIONS,
-  TABLEAU_COLUMNS,
-  deal,
-  draw,
-  maxTake,
-  move,
-  pile,
-  samePile,
-} from './core/klondike.ts';
+import { GAME_ID, newGameId } from './stats.ts';
+import { writeWhole } from './stats-file.ts';
+import { type DrawMode, type KlondikeState, type PileId, type Step, FOUNDATIONS, TABLEAU_COLUMNS, deal, draw, move, steps } from './core/klondike.ts';
 
-/** One step from a position to the next: a draw, or a move of `count` cards. */
-export type Step = { readonly draw: true } | { readonly from: PileId; readonly to: PileId; readonly count: number };
+export type { Step };
 
 export interface SavedGame {
   readonly version: 2;
@@ -64,41 +50,15 @@ export function savedGamePath(env: NodeJS.ProcessEnv, statsFile: string): string
 // ---------------------------------------------------------------------------
 // Steps
 
-const cardsKey = (cards: readonly Card[]) => cards.map((c) => c.suit + c.rank).join(',');
+/** Every card where it lies, foundations in place: unlike positionKey, which foundation holds what matters here. */
+const exact = (s: KlondikeState): string => JSON.stringify([s.redealsLeft, s.stock, s.waste, s.foundations, s.tableau]);
 
-/** Exact equality of positions, foundations in place: unlike positionKey, which foundation holds what matters here. */
-function samePosition(a: KlondikeState, b: KlondikeState): boolean {
-  if (a.redealsLeft !== b.redealsLeft || cardsKey(a.stock) !== cardsKey(b.stock) || cardsKey(a.waste) !== cardsKey(b.waste)) return false;
-  for (let i = 0; i < FOUNDATIONS; i++) if (cardsKey(a.foundations[i]!) !== cardsKey(b.foundations[i]!)) return false;
-  for (let i = 0; i < TABLEAU_COLUMNS; i++) {
-    const x = a.tableau[i]!;
-    const y = b.tableau[i]!;
-    if (cardsKey(x.down) !== cardsKey(y.down) || cardsKey(x.up) !== cardsKey(y.up)) return false;
-  }
-  return true;
-}
-
-const PILES: PileId[] = [
-  pile.waste,
-  ...Array.from({ length: FOUNDATIONS }, (_, i) => pile.foundation(i)),
-  ...Array.from({ length: TABLEAU_COLUMNS }, (_, i) => pile.tableau(i)),
-];
+const samePosition = (a: KlondikeState, b: KlondikeState): boolean => exact(a) === exact(b);
 
 /** The step that turns `before` into `after`, if one does. */
-export function stepBetween(before: KlondikeState, after: KlondikeState): Step | undefined {
-  const d = draw(before);
-  if (d.ok && samePosition(d.state, after)) return { draw: true };
-  for (const from of PILES) {
-    const max = maxTake(before, from);
-    for (let count = 1; count <= max; count++) {
-      for (const to of PILES) {
-        if (to.kind === 'waste' || samePile(from, to)) continue;
-        const r = move(before, from, to, count);
-        if (r.ok && samePosition(r.state, after)) return { from, to, count };
-      }
-    }
-  }
-  return undefined;
+function stepBetween(before: KlondikeState, after: KlondikeState): Step | undefined {
+  const want = exact(after);
+  return steps(before).find((s) => exact(s.state) === want)?.step;
 }
 
 /** Steps found so far, by the position they lead to: each save only works out the new ones. */
@@ -122,7 +82,7 @@ export function replaySaved(saved: SavedGame): KlondikeState[] | undefined {
   let s = deal(saved.seed, saved.drawMode, saved.redeals ?? Infinity);
   const states = [s];
   for (const step of saved.steps) {
-    const r: Result = 'draw' in step ? draw(s) : move(s, step.from, step.to, step.count);
+    const r = 'draw' in step ? draw(s) : move(s, step.from, step.to, step.count);
     if (!r.ok) return undefined;
     s = r.state;
     states.push(s);
@@ -194,7 +154,7 @@ export function parseSavedGame(data: unknown): SavedGame | undefined {
   return {
     version: 2,
     savedAt: typeof o.savedAt === 'string' ? o.savedAt : '',
-    id: typeof o.id === 'string' && /^[0-9a-f]{8,32}$/.test(o.id) ? o.id : newGameId(),
+    id: typeof o.id === 'string' && GAME_ID.test(o.id) ? o.id : newGameId(),
     ...(Number.isInteger(o.at) && (o.at as number) > 0 ? { at: o.at as number } : {}),
     seed: o.seed as number,
     drawMode: o.drawMode,
@@ -216,17 +176,9 @@ export function loadSavedGame(path: string): SavedGame | undefined {
   }
 }
 
-/** Writes through a temporary file, so a crash never leaves half a game. Never throws. */
+/** Says whether the game was written; a crash never leaves half a game. Never throws. */
 export function writeSavedGame(path: string, game: SavedGame): boolean {
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(game) + '\n');
-    renameSync(tmp, path);
-    return true;
-  } catch {
-    return false;
-  }
+  return writeWhole(path, JSON.stringify(game) + '\n');
 }
 
 export function removeSavedGame(path: string): void {

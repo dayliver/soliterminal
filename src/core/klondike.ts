@@ -138,31 +138,23 @@ export function samePile(a: PileId, b: PileId): boolean {
   return a.kind === b.kind && a.index === b.index;
 }
 
-/** How many cards could be picked up from a pile at most. */
-export function maxTake(state: KlondikeState, from: PileId): number {
+/** The face-up cards of a pile, top last: the waste, a foundation, or a column's run. */
+export function cardsIn(state: KlondikeState, from: PileId): readonly Card[] {
   checkPile(from);
-  switch (from.kind) {
-    case 'waste':
-      return state.waste.length > 0 ? 1 : 0;
-    case 'foundation':
-      return state.foundations[from.index]!.length > 0 ? 1 : 0;
-    case 'tableau':
-      return state.tableau[from.index]!.up.length;
-  }
+  return from.kind === 'waste' ? state.waste : from.kind === 'foundation' ? state.foundations[from.index]! : state.tableau[from.index]!.up;
+}
+
+/** How many cards could be picked up from a pile at most: a whole run, or elsewhere the top card. */
+export function maxTake(state: KlondikeState, from: PileId): number {
+  const n = cardsIn(state, from).length;
+  return from.kind === 'tableau' ? n : Math.min(n, 1);
 }
 
 function take(state: KlondikeState, from: PileId, count: number): readonly Card[] | MoveError {
   const max = maxTake(state, from);
   if (max === 0) return 'empty-source';
   if (!Number.isInteger(count) || count < 1 || count > max) return 'bad-count';
-  switch (from.kind) {
-    case 'waste':
-      return state.waste.slice(-1);
-    case 'foundation':
-      return state.foundations[from.index]!.slice(-1);
-    case 'tableau':
-      return state.tableau[from.index]!.up.slice(-count);
-  }
+  return cardsIn(state, from).slice(-count);
 }
 
 /** Whether `cards` (bottom card first) may be placed on the destination pile. */
@@ -267,7 +259,7 @@ export function fittingCount(state: KlondikeState, from: PileId, to: PileId): nu
 /**
  * Source key then destination key: moves however many cards fit.
  * A foundation destination is exact. If the card belongs on a different
- * foundation the error is `wrong-foundation`, so the UI can point at F9.
+ * foundation the error is `wrong-foundation`, so the UI can point at the key that finds the right one.
  */
 export function moveTo(state: KlondikeState, from: PileId, to: PileId): Result {
   checkPile(from);
@@ -284,7 +276,7 @@ export function moveTo(state: KlondikeState, from: PileId, to: PileId): Result {
 }
 
 /**
- * F9: sends the top card of the waste or a column to the foundation of its suit,
+ * Sends the top card of the waste or a column to the foundation of its suit,
  * or for an ace to the first empty foundation.
  */
 export function moveToFoundation(state: KlondikeState, from: PileId): Result {
@@ -296,17 +288,21 @@ export function moveToFoundation(state: KlondikeState, from: PileId): Result {
   return home === undefined ? fail('not-allowed') : move(state, from, pile.foundation(home), 1);
 }
 
-/** Every legal destination for cards from `from`, in auto-move preference order. */
-export function destinations(state: KlondikeState, from: PileId): PileId[] {
+/**
+ * Every legal destination for cards from `from`, in auto-move preference
+ * order: foundation, then a non-empty column, then an empty column. With
+ * `count`, for exactly that many cards; otherwise for however many fit.
+ */
+export function destinations(state: KlondikeState, from: PileId, count?: number): PileId[] {
   // An ace fits every empty foundation; offer only the first so auto move is predictable.
-  const card = from.kind === 'foundation' ? undefined : take(state, from, 1);
-  const home = card === undefined || typeof card === 'string' ? undefined : foundationFor(state, card[0]!);
-  const foundations = home === undefined ? [] : [pile.foundation(home)];
-  const columns = state.tableau.map((_, i) => pile.tableau(i));
-  const filled = columns.filter((c) => c.kind === 'tableau' && state.tableau[c.index]!.up.length > 0);
-  const empty = columns.filter((c) => c.kind === 'tableau' && state.tableau[c.index]!.up.length === 0);
-  return [...foundations, ...filled, ...empty].filter((to) => {
-    const n = fittingCount(state, from, to);
+  const card = from.kind === 'foundation' ? undefined : cardsIn(state, from).at(-1);
+  const home = card && foundationFor(state, card);
+  const columns = state.tableau.map((_, i) => i);
+  const filled = (i: number) => state.tableau[i]!.up.length > 0;
+  const targets = [...columns.filter(filled), ...columns.filter((i) => !filled(i))].map((i) => pile.tableau(i));
+  if (home !== undefined) targets.unshift(pile.foundation(home));
+  return targets.filter((to) => {
+    const n = count === undefined ? fittingCount(state, from, to) : move(state, from, to, count).ok ? count : undefined;
     if (n === undefined) return false;
     // Moving a whole column that has nothing under it into an empty column changes nothing.
     if (from.kind === 'tableau' && to.kind === 'tableau') {
@@ -317,10 +313,7 @@ export function destinations(state: KlondikeState, from: PileId): PileId[] {
   });
 }
 
-/**
- * Same key twice: sends cards from `from` to the best legal spot.
- * Preference: foundation, then a non-empty column, then an empty column.
- */
+/** Same key twice: sends cards from `from` to the best legal spot, as `destinations` orders them. */
 export function autoMove(state: KlondikeState, from: PileId): Result {
   checkPile(from);
   if (maxTake(state, from) === 0) return fail('empty-source');
@@ -392,22 +385,33 @@ export function positionKey(state: KlondikeState): string {
   return `${state.drawMode};${state.redealsLeft};${cardsKey(state.stock)};${cardsKey(state.waste)};${foundations};${tableau}`;
 }
 
-/** Every position one move away: a draw, or any legal move of any number of cards. */
-export function successors(state: KlondikeState): KlondikeState[] {
-  const out = new Map<string, KlondikeState>();
-  const add = (r: Result) => {
-    if (!r.ok) return;
-    const key = positionKey(r.state);
-    if (!out.has(key)) out.set(key, r.state);
+/** One step from a position to the next: a draw, or a move of `count` cards. */
+export type Step = { readonly draw: true } | { readonly from: PileId; readonly to: PileId; readonly count: number };
+
+/** Every legal step from a position, a draw or a move of any number of cards, with where it leads. */
+export function steps(state: KlondikeState): { readonly step: Step; readonly state: KlondikeState }[] {
+  const out: { step: Step; state: KlondikeState }[] = [];
+  const add = (step: Step, r: Result) => {
+    if (r.ok) out.push({ step, state: r.state });
   };
-  add(draw(state));
+  add({ draw: true }, draw(state));
   const tableau = state.tableau.map((_, i) => pile.tableau(i));
   const foundations = state.foundations.map((_, i) => pile.foundation(i));
   for (const from of [pile.waste, ...foundations, ...tableau]) {
     const max = maxTake(state, from);
-    for (let n = 1; n <= max; n++) {
-      for (const to of [...foundations, ...tableau]) if (!samePile(from, to)) add(move(state, from, to, n));
+    for (let count = 1; count <= max; count++) {
+      for (const to of [...foundations, ...tableau]) if (!samePile(from, to)) add({ from, to, count }, move(state, from, to, count));
     }
+  }
+  return out;
+}
+
+/** Every position one step away, each once however many steps lead to it. */
+export function successors(state: KlondikeState): KlondikeState[] {
+  const out = new Map<string, KlondikeState>();
+  for (const { state: next } of steps(state)) {
+    const key = positionKey(next);
+    if (!out.has(key)) out.set(key, next);
   }
   return [...out.values()];
 }

@@ -59,8 +59,8 @@ export function cardName(card: Card, ascii = false): string {
   return rankGlyph(card.rank, true) + suitLabel(card.suit, ascii);
 }
 
-export function sameCard(a: Card, b: Card): boolean {
-  return a.suit === b.suit && a.rank === b.rank;
+export function sameCard(a: Card | undefined, b: Card): boolean {
+  return a !== undefined && a.suit === b.suit && a.rank === b.rank;
 }
 
 /**

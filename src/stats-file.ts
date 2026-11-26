@@ -22,7 +22,7 @@ export const sharePath = (statsFile: string): string => join(dirname(statsFile),
 const legacyPath = (statsFile: string): string => join(dirname(statsFile), 'stats.json');
 
 /** Writes through a temporary file, so a crash never leaves half a file. Never throws. */
-function writeWhole(path: string, text: string): boolean {
+export function writeWhole(path: string, text: string): boolean {
   try {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;

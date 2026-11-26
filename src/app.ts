@@ -1,4 +1,4 @@
-import { cardName } from './core/card.ts';
+import { cardName, sameCard } from './core/card.ts';
 import {
   type DrawMode,
   type KlondikeState,
@@ -8,6 +8,7 @@ import {
   autoComplete,
   autoMove,
   canAutoComplete,
+  cardsIn,
   deal,
   destinations,
   draw,
@@ -24,7 +25,7 @@ import {
 } from './core/klondike.ts';
 import type { Level, SolverMove, Verdict } from './core/solver.ts';
 import { EMPTY_STATS, type StatEvent, type Stats, type WinRecord, newGameId, pastGame, recordLoss, recordWin, statsFor, winRate, withLevel } from './stats.ts';
-import { formatWhen } from './ui/help.ts';
+import { formatTime, formatWhen } from './ui/help.ts';
 import { MAX_BATCH, SHARE_EVERY, acceptShare, declineShare, finishedGames, markShared, shareDue, unsent } from './share.ts';
 import { STOCK_KEY, keyLabel, pileForKey } from './ui/keymap.ts';
 import type { CursorSpot, Dialog, View } from './ui/layout.ts';
@@ -138,7 +139,7 @@ export interface App {
   readonly showHelp: boolean;
   readonly showStats: boolean;
   /**
-   * The deals screen (g): a seed being typed, the recent game chosen in the
+   * The deals screen: a seed being typed, the recent game chosen in the
    * list (0 is the newest), and the draw mode a typed seed is played in.
    */
   readonly deals?: DealsScreen;
@@ -184,6 +185,8 @@ export interface DealsScreen {
 const MAX_SEED = 0xffff_ffff;
 
 const WELCOME = 'Press a pile key, then where it goes. Esc for the menu.';
+
+const WELCOME_BACK = 'Welcome back. Your game is where you left it.';
 
 const STALLED = 'This game can still be won, there is a move you have not tried. ? shows it.';
 
@@ -277,7 +280,7 @@ export function resumeApp(states: readonly KlondikeState[], options: ResumeOptio
   const start = createApp(states[0]!, options);
   const game = states[states.length - 1]!;
   const clock = options.ms > 0 ? { startedAt: options.now - options.ms } : {};
-  if (states.length === 1) return { ...start, ...clock, play: options.play, message: 'Welcome back. Your game is where you left it.' };
+  if (states.length === 1) return { ...start, ...clock, play: options.play, message: WELCOME_BACK };
   let app: App = {
     ...start,
     game,
@@ -287,7 +290,7 @@ export function resumeApp(states: readonly KlondikeState[], options: ResumeOptio
     stall: stallFrom(game),
     play: options.play,
     startedAt: options.now - options.ms,
-    message: 'Welcome back. Your game is where you left it.',
+    message: WELCOME_BACK,
   };
   // Where z goes back to after a loss: saved with the game, else the deal.
   const w = options.winnable;
@@ -315,6 +318,7 @@ interface DialogSpec {
 const close = (app: App): App => ({ ...app, dialog: undefined });
 const carryOn = (app: App): App => ({ ...close(app), message: 'Carry on.' });
 const keepPlaying: Choice = { label: 'Keep playing', act: carryOn };
+const quitNow = (app: App): App => ({ ...app, quit: true });
 
 /** Nothing to give up while no card has moved, or once the game is over. */
 const untouched = (app: App): boolean => app.play !== 'counted' || app.finishedAt !== undefined;
@@ -327,14 +331,14 @@ function menuSpec(app: App): DialogSpec {
     lines: [],
     choices: [
       { label: 'Back to the game', act: close },
-      { label: 'New game', act: (a, now, dealer) => (untouched(a) ? newGame(close(a), dealer, undefined, now) : { ...a, held: undefined, dialog: 'new' }) },
+      { label: 'New game', act: (a, now, dealer) => (untouched(a) ? newGame(close(a), dealer, now) : { ...a, held: undefined, dialog: 'new' }) },
       { label: 'Restart this deal', act: (a) => askRestart(close(a)) },
       { label: `Draw ${other} instead`, act: (a, now, dealer) => switchDraw(close(a), dealer, now) },
       { label: 'Hint', act: (a) => showHint(close(a)) },
       { label: 'Play a seed or a recent game', act: (a) => openDeals(close(a)) },
       { label: 'Statistics', act: (a) => ({ ...close(a), held: undefined, showStats: true }) },
       { label: 'Keys and rules', act: (a) => ({ ...close(a), showHelp: true }) },
-      { label: 'Quit (your game is kept)', act: (a) => ({ ...a, quit: true }) },
+      { label: 'Quit (your game is kept)', act: quitNow },
     ],
     cancel: close,
   };
@@ -358,12 +362,12 @@ function wonSpec(app: App): DialogSpec {
     title: 'You won!',
     lines,
     choices: [
-      { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, undefined, now) },
+      { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, now) },
       { label: 'Choose a deal', act: (a) => openDeals(close(a)) },
       { label: 'Statistics', act: (a) => ({ ...close(a), showStats: true }) },
       { label: 'Look at the board', act: look },
       // Nothing to keep: the next start deals a new game.
-      { label: 'Quit', act: (a) => ({ ...a, quit: true }) },
+      { label: 'Quit', act: quitNow },
     ],
     cancel: look,
   };
@@ -373,20 +377,17 @@ function wonSpec(app: App): DialogSpec {
 function shareSpec(app: App): DialogSpec {
   const total = finishedGames(app.stats);
   const n = (x: number) => x.toLocaleString('en-US');
+  const next = n((Math.floor(total / SHARE_EVERY) + 1) * SHARE_EVERY);
   // Asked after a win: either answer goes on to the results.
   const results = (a: App): App => (a.finishedAt !== undefined ? { ...a, dialog: 'won' } : close(a));
-  const notNow = (a: App): App => {
-    const next = (Math.floor(finishedGames(a.stats) / SHARE_EVERY) + 1) * SHARE_EVERY;
-    return say({ ...results(a), stats: declineShare(a.stats) }, `Not sent. You will be asked again at ${n(next)} games.`);
-  };
-  const next = (Math.floor(total / SHARE_EVERY) + 1) * SHARE_EVERY;
+  const notNow = (a: App): App => say({ ...results(a), stats: declineShare(a.stats) }, `Not sent. You will be asked again at ${next} games.`);
   return {
     title: `You won, and that makes ${n(total)} games!`,
     lines: [
       'Send your results to Klondike research?',
       `${n(Math.min(unsent(app.stats).length, MAX_BATCH))} games: seed, mode, result, time, moves.`,
       'Nothing about you or your computer is sent.',
-      `Not now asks again at ${n(next)}, with all games.`,
+      `Not now asks again at ${next}, with all games.`,
     ],
     choices: [
       { label: 'Send', act: (a) => say({ ...results(a), stats: acceptShare(a.stats) }, 'Thank you! Sending your results...') },
@@ -404,11 +405,11 @@ function lostSpec(app: App): DialogSpec {
     title: 'No way to win from here',
     lines: since <= 1 ? ['Win chance is now 0%. Try again?'] : [`It was lost within the last ${since} moves.`, 'Going back goes to just before them.'],
     choices: [
-      { label: 'Back to the last winnable spot', act: (a) => backToWinnable(a) },
-      { label: 'Restart this deal', act: (a) => restart(a) },
-      { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, undefined, now) },
+      { label: 'Back to the last winnable spot', act: backToWinnable },
+      { label: 'Restart this deal', act: restart },
+      { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, now) },
       { label: 'Play on', act: playOn },
-      { label: 'Quit (your game is kept)', act: (a) => ({ ...a, quit: true }) },
+      { label: 'Quit (your game is kept)', act: quitNow },
     ],
     cancel: playOn,
     danger: true,
@@ -418,7 +419,7 @@ function lostSpec(app: App): DialogSpec {
 /** A seed was asked for on the command line while a game was kept. */
 function seedSpec(app: App): DialogSpec {
   const offer = app.seedOffer;
-  const keep = (a: App): App => ({ ...close(a), seedOffer: undefined, message: 'Welcome back. Your game is where you left it.' });
+  const keep = (a: App): App => ({ ...close(a), seedOffer: undefined, message: WELCOME_BACK });
   return {
     title: 'A game is in progress',
     lines: offer ? [`You asked for seed ${offer.seed}, Draw ${offer.drawMode}.`, 'Giving up the kept game counts as a loss.'] : [],
@@ -435,13 +436,13 @@ function confirmSpec(kind: 'restart' | 'new'): DialogSpec {
     ? {
         title: 'Restart this deal?',
         lines: ['Every move so far will be undone.'],
-        choices: [{ label: 'Restart', act: (a) => restart(a) }, keepPlaying],
+        choices: [{ label: 'Restart', act: restart }, keepPlaying],
         cancel: carryOn,
       }
     : {
         title: 'Give up this game?',
         lines: ['A new deal replaces this one. It counts as a loss.'],
-        choices: [{ label: 'Give up and deal a new game', act: (a, now, dealer) => newGame(a, dealer, undefined, now) }, keepPlaying],
+        choices: [{ label: 'Give up and deal a new game', act: (a, now, dealer) => newGame(a, dealer, now) }, keepPlaying],
         cancel: carryOn,
       };
 }
@@ -461,7 +462,7 @@ function quitSpec(app: App): DialogSpec {
   return {
     title: 'Quit soliterminal?',
     lines: [app.finishedAt === undefined ? 'Your game is kept: run soliterminal to carry on.' : 'See you next time.'],
-    choices: [{ label: 'Quit', act: (a) => ({ ...a, quit: true }) }, keepPlaying],
+    choices: [{ label: 'Quit', act: quitNow }, keepPlaying],
     cancel: carryOn,
   };
 }
@@ -506,7 +507,7 @@ export function viewOf(app: App, now: number): View {
     tight: noSlack(app) || undefined,
     cursor: app.cursor,
     selected: app.selected,
-    held: app.held && { from: app.held.from, count: app.held.count },
+    held: app.held,
     message: app.message,
     elapsedMs,
     paused: app.pausedAt !== undefined,
@@ -525,15 +526,9 @@ export function viewOf(app: App, now: number): View {
 const pileName = (p: PileId): string =>
   p.kind === 'waste' ? 'the waste' : p.kind === 'tableau' ? `column ${p.index + 1}` : keyLabel(p);
 
-function formatTime(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-}
-
 /** The card that leads a move from `from`: the bottom of the run being moved. */
 function leadCard(app: App, from: PileId, count = 1): string {
-  const g = app.game;
-  const cards = from.kind === 'waste' ? g.waste : from.kind === 'foundation' ? g.foundations[from.index]! : g.tableau[from.index]!.up;
+  const cards = cardsIn(app.game, from);
   const card = cards[cards.length - Math.max(1, count)];
   return card ? cardName(card, app.ascii) : pileName(from);
 }
@@ -554,7 +549,7 @@ function explain(app: App, error: MoveError, from: PileId, to?: PileId): string 
     case 'no-move':
       return `${lead} has nowhere to go right now.`;
     case 'wrong-foundation': {
-      const card = cardAt(app, from);
+      const card = cardsIn(app.game, from).at(-1);
       const home = card === undefined ? undefined : foundationFor(app.game, card);
       const where = home === undefined ? 'another foundation' : keyLabel(pile.foundation(home));
       return `${lead} goes on ${where}. Press ${keyLabel({ kind: 'auto-foundation' })} to send it there.`;
@@ -566,13 +561,6 @@ function explain(app: App, error: MoveError, from: PileId, to?: PileId): string 
       if (to === undefined || to.kind === 'foundation') return `${lead} cannot go to a foundation yet.`;
       return `${lead} cannot go on ${pileName(to)}.`;
   }
-}
-
-function cardAt(app: App, from: PileId) {
-  const g = app.game;
-  if (from.kind === 'waste') return g.waste.at(-1);
-  if (from.kind === 'foundation') return g.foundations[from.index]!.at(-1);
-  return g.tableau[from.index]!.up.at(-1);
 }
 
 // ---------------------------------------------------------------------------
@@ -656,9 +644,8 @@ function endCeremony(app: App): App {
 const afterWin = (app: App): boolean => app.finishedAt !== undefined && (app.dialog === 'won' || app.dialog === 'share');
 
 /**
- * Leaving this play of the deal unfinished ends the win streak. New deals
- * call this themselves; the runner calls it on quit only when the game cannot
- * be kept for later.
+ * Leaving this play of the deal unfinished ends the win streak: it goes on
+ * record as a loss. Quitting does not, since the game is kept for later.
  */
 export function abandon(app: App, now = Date.now()): App {
   if (app.play !== 'counted') return app;
@@ -741,8 +728,7 @@ function settleWinnable(app: App, next?: SolverMove): App {
 function heldWarning(app: App): string | undefined {
   const held = app.held;
   if (!held) return undefined;
-  const results =
-    held.count === undefined ? destinations(app.game, held.from).map((to) => moveTo(app.game, held.from, to)) : exactMoves(app.game, held.from, held.count);
+  const results = destinations(app.game, held.from, held.count).map((to) => place(app.game, held, to));
   const ends = results.flatMap((r) => (r.ok ? [app.known.get(positionKey(r.state))?.verdict] : []));
   const lost = ends.filter((v) => v === 'lost').length;
   if (lost === 0) return undefined;
@@ -753,7 +739,7 @@ function heldWarning(app: App): string | undefined {
 /**
  * Applies a game result. On success the old state goes on the undo stack and
  * the held cards are dropped. On failure the cards stay in hand so the player
- * can try another destination, or F9, straight away.
+ * can try another destination straight away.
  */
 function commit(app: App, result: Result, now: number, onError: (e: MoveError) => string, isDraw = false): App {
   if (!result.ok) return say(app, onError(result.error));
@@ -776,21 +762,10 @@ function commit(app: App, result: Result, now: number, onError: (e: MoveError) =
   return winIfDone(next, now);
 }
 
-const TABLEAU_TARGETS = Array.from({ length: TABLEAU_COLUMNS }, (_, i) => pile.tableau(i));
-
 /** Puts held cards on `to`: exactly `count` of them if set, otherwise the count that fits. */
 function place(game: KlondikeState, held: Held, to: PileId): Result {
   if (held.count === undefined || (held.count === 1 && to.kind === 'foundation')) return moveTo(game, held.from, to);
   return move(game, held.from, to, held.count);
-}
-
-/** Every result of putting exactly `count` cards from `from` somewhere, best first, as autoMove orders them. */
-function exactMoves(game: KlondikeState, from: PileId, count: number): Result[] {
-  const filled = TABLEAU_TARGETS.filter((t) => t.kind === 'tableau' && game.tableau[t.index]!.up.length > 0);
-  const empty = TABLEAU_TARGETS.filter((t) => t.kind === 'tableau' && game.tableau[t.index]!.up.length === 0);
-  const home = count === 1 ? [moveToFoundation(game, from)] : [];
-  const columns = [...filled, ...empty].filter((to) => !samePile(from, to)).map((to) => move(game, from, to, count));
-  return [...home, ...columns].filter((r) => r.ok);
 }
 
 /** "7♥", or "7♥ and the 2 cards on it". */
@@ -871,26 +846,20 @@ function showHint(app: App): App {
   const base = { ...app, held: undefined };
   switch (move.from.kind) {
     case 'talon': {
-      const top = g.waste.at(-1);
-      const onTop = top !== undefined && top.suit === move.card.suit && top.rank === move.card.rank;
-      const message = onTop
+      const message = sameCard(g.waste.at(-1), move.card)
         ? `Hint: ${card} from the waste (${keyLabel(pile.waste)}) to ${to}.`
         : `Hint: draw until ${card} is on the waste, then play it to ${to}.`;
       return { ...base, cursor: pile.waste, message };
     }
     case 'tableau': {
       const from = pile.tableau(move.from.index);
-      const more = move.count > 1 ? ` and the ${move.count - 1 === 1 ? 'card' : `${move.count - 1} cards`} on it` : '';
-      const message = `Hint: ${card}${more} from ${pileName(from)} (${keyLabel(from)}) to ${to}.`;
+      const message = `Hint: ${runName(app, from, move.count)} from ${pileName(from)} (${keyLabel(from)}) to ${to}.`;
       // Part of a run: choose just those cards, so space picks up the right ones.
       const part = move.count < maxTake(g, from) ? move.count : undefined;
       return { ...base, cursor: from, selected: part, message };
     }
     case 'foundation': {
-      const f = g.foundations.findIndex((p) => {
-        const top = p.at(-1);
-        return top !== undefined && top.suit === move.card.suit && top.rank === move.card.rank;
-      });
+      const f = g.foundations.findIndex((p) => sameCard(p.at(-1), move.card));
       const key = f < 0 ? '' : ` (${keyLabel(pile.foundation(f))})`;
       return { ...base, message: `Hint: take ${card} back down from its foundation${key} to ${to}.` };
     }
@@ -906,9 +875,9 @@ function askHint(app: App): App {
 /** Sends cards to the best spot: exactly `count` of them if given, else whatever fits. */
 function autoFrom(app: App, from: PileId, now: number, count?: number): App {
   if (count === undefined) return commit(app, autoMove(app.game, from), now, (e) => explain(app, e, from));
-  const best = exactMoves(app.game, from, count)[0];
-  if (!best) return say(app, `${runName(app, from, count)} ${count > 1 ? 'have' : 'has'} nowhere to go right now.`);
-  return commit(app, best, now, () => '');
+  const to = destinations(app.game, from, count)[0];
+  if (!to) return say(app, `${runName(app, from, count)} ${count > 1 ? 'have' : 'has'} nowhere to go right now.`);
+  return commit(app, move(app.game, from, to, count), now, () => '');
 }
 
 function toFoundation(app: App, now: number): App {
@@ -921,10 +890,15 @@ function fresh(app: App, game: KlondikeState, verified: boolean, message: string
   return { ...next, outbox: app.outbox, version: app.version + 1, nextDrawMode: app.nextDrawMode, message };
 }
 
-function newGame(app: App, dealer: Dealer, drawMode = app.nextDrawMode, now?: number): App {
-  const { seed, verified } = dealer(drawMode);
+/** Another deal in place of this one, which goes on record as a loss if it was under way. `first` opens its greeting. */
+function startDeal(app: App, seed: number, drawMode: DrawMode, verified: boolean, first: string, now: number): App {
   const left = abandon(app, now);
-  return { ...fresh(left, deal(seed, drawMode, app.redeals), verified, greeting(left, seed, drawMode, 'New game.')), nextDrawMode: drawMode };
+  return { ...fresh(left, deal(seed, drawMode, app.redeals), verified, greeting(left, seed, drawMode, first)), nextDrawMode: drawMode };
+}
+
+function newGame(app: App, dealer: Dealer, now: number, drawMode = app.nextDrawMode): App {
+  const { seed, verified } = dealer(drawMode);
+  return startDeal(app, seed, drawMode, verified, 'New game.', now);
 }
 
 /**
@@ -948,7 +922,7 @@ function askRestart(app: App): App {
 /** A deal proven winnable in one mode may not be in the other, so an untouched deal is replaced; else the next deal switches. */
 function switchDraw(app: App, dealer: Dealer, now: number): App {
   const nextDrawMode: DrawMode = app.nextDrawMode === 1 ? 3 : 1;
-  if (untouched(app) && app.finishedAt === undefined) return { ...newGame(app, dealer, nextDrawMode, now), message: `Draw ${nextDrawMode}.` };
+  if (untouched(app) && app.finishedAt === undefined) return { ...newGame(app, dealer, now, nextDrawMode), message: `Draw ${nextDrawMode}.` };
   return { ...app, nextDrawMode, message: `Draw ${nextDrawMode} from the next game.` };
 }
 
@@ -1038,8 +1012,7 @@ function trackColumn(before: App, after: App): App {
 
 /** A particular deal, chosen by seed: not checked first, so the solver judges it as play starts. */
 function playSeed(app: App, seed: number, drawMode: DrawMode, now: number): App {
-  const left = abandon(app, now);
-  return { ...fresh(left, deal(seed, drawMode, app.redeals), false, greeting(left, seed, drawMode, `Seed ${seed}, Draw ${drawMode}.`)), nextDrawMode: drawMode };
+  return startDeal(app, seed, drawMode, false, `Seed ${seed}, Draw ${drawMode}.`, now);
 }
 
 /** The answer came back from the server: the games sent are marked, or the batch waits for the next start. */
@@ -1098,13 +1071,13 @@ function handleDeals(app: App, screen: DealsScreen, key: string, now: number): A
   }
 }
 
-/**
- * Keys while a dialog is up: up and down choose, enter or space takes the
- * choice, esc backs out. Anything else is ignored.
- */
 /** The letter that picks a choice: the first of its label. Each dialog keeps them distinct. */
 export const choiceKey = (label: string): string => label[0]!.toLowerCase();
 
+/**
+ * Keys while a dialog is up: up and down choose, enter or space or the
+ * choice's letter takes it, esc backs out. Anything else is ignored.
+ */
 function handleDialog(app: App, key: string, dealer: Dealer, now: number): App {
   const spec = specOf(app);
   if (!spec) return close(app);

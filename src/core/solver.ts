@@ -10,7 +10,7 @@
  * pointer to how many cards are turned. Drawing on its own never helps, so the
  * solver instead plays any talon card it could reach by drawing, as one move.
  */
-import { type Card, type Rank, SUITS } from './card.ts';
+import { type Card, type Rank, SUITS, sameCard } from './card.ts';
 import {
   type DrawMode,
   type KlondikeState,
@@ -455,11 +455,10 @@ class Queue {
   }
 }
 
-/**
- * Best-first search: always expands the most promising position seen so far,
- * so one bad early choice cannot swallow the whole budget the way it can in a
- * plain depth-first search.
- */
+/** The budget of a search that is not given one. */
+const MAX_NODES = 300_000;
+const TIME_LIMIT_MS = 5_000;
+
 /**
  * Solves a position.
  *
@@ -472,8 +471,8 @@ class Queue {
 export function solve(state: KlondikeState, options: SolveOptions = {}): SolveResult {
   if (!Number.isFinite(state.redealsLeft) || !options.exhaustive) return search(state, options);
   const start = Date.now();
-  const maxNodes = options.maxNodes ?? 300_000;
-  const timeLimitMs = options.timeLimitMs ?? 5_000;
+  const maxNodes = options.maxNodes ?? MAX_NODES;
+  const timeLimitMs = options.timeLimitMs ?? TIME_LIMIT_MS;
   const relaxed = search({ ...state, redealsLeft: Infinity }, { ...options, maxNodes: maxNodes / 2, timeLimitMs: timeLimitMs / 2 });
   if (relaxed.status === 'unsolvable') return { ...relaxed, ms: Date.now() - start };
   const exact = search(state, {
@@ -484,10 +483,15 @@ export function solve(state: KlondikeState, options: SolveOptions = {}): SolveRe
   return { ...exact, nodes: exact.nodes + relaxed.nodes, ms: Date.now() - start };
 }
 
+/**
+ * Best-first search: always expands the most promising position seen so far,
+ * so one bad early choice cannot swallow the whole budget the way it can in a
+ * plain depth-first search.
+ */
 function search(state: KlondikeState, options: SolveOptions): SolveResult {
-  const maxNodes = options.maxNodes ?? 300_000;
+  const maxNodes = options.maxNodes ?? MAX_NODES;
   const start = Date.now();
-  const deadline = start + (options.timeLimitMs ?? 5_000);
+  const deadline = start + (options.timeLimitMs ?? TIME_LIMIT_MS);
   const drawMode = state.drawMode;
   const columns = state.tableau.length;
   /**
@@ -587,8 +591,6 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
 
 // ---------------------------------------------------------------------------
 // Replay through the real rules
-
-const sameCard = (a: Card | undefined, b: Card) => a !== undefined && a.suit === b.suit && a.rank === b.rank;
 
 /**
  * Plays a solution with the game's own `draw` and `move` and returns the final

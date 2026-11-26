@@ -27,9 +27,8 @@ function palette(accent: Accent): { fg: Record<Fg, string>; bg: Record<Bg, strin
       text: '39', // the terminal's own text color
       black: '30',
       red: '31',
-      border: '90', // bright black, usually grey
       back: '37',
-      dim: '90',
+      dim: '90', // bright black, usually grey
       key: strong,
       header: weak,
       message: weak,

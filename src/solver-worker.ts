@@ -8,24 +8,28 @@ import type { DrawMode, KlondikeState } from './core/klondike.ts';
 import { type Level, type SolverMove, type Verdict, findWinnableSeed, judge, judgeDeeply, rateDeal } from './core/solver.ts';
 
 export type WorkerRequest =
-  | { readonly id: number; readonly type: 'judge'; readonly state: KlondikeState; readonly deep?: boolean }
-  | { readonly id: number; readonly type: 'deal'; readonly drawMode: DrawMode; readonly redeals: number }
-  | { readonly id: number; readonly type: 'rate'; readonly state: KlondikeState };
+  | { readonly type: 'judge'; readonly state: KlondikeState; readonly deep: boolean }
+  | { readonly type: 'deal'; readonly drawMode: DrawMode; readonly redeals: number }
+  | { readonly type: 'rate'; readonly state: KlondikeState };
 
-export type WorkerResponse =
-  | { readonly id: number; readonly type: 'judge'; readonly verdict: Verdict; readonly next?: SolverMove }
-  | { readonly id: number; readonly type: 'deal'; readonly seed: number | undefined }
-  | { readonly id: number; readonly type: 'rate'; readonly level: Level };
+/** The answer to a request of each type. */
+export interface WorkerAnswer {
+  readonly judge: { readonly verdict: Verdict; readonly next?: SolverMove };
+  readonly deal: number | undefined;
+  readonly rate: Level;
+}
 
-parentPort!.on('message', (req: WorkerRequest) => {
-  let res: WorkerResponse;
-  if (req.type === 'judge') {
-    const { verdict, next } = (req.deep ? judgeDeeply : judge)(req.state);
-    res = { id: req.id, type: 'judge', verdict, next };
-  } else if (req.type === 'rate') {
-    res = { id: req.id, type: 'rate', level: rateDeal(req.state).level };
-  } else {
-    res = { id: req.id, type: 'deal', seed: findWinnableSeed(req.drawMode, randomSeed, { redeals: req.redeals }) };
+function answer(req: WorkerRequest): WorkerAnswer[WorkerRequest['type']] {
+  switch (req.type) {
+    case 'judge': {
+      const { verdict, next } = (req.deep ? judgeDeeply : judge)(req.state);
+      return { verdict, next };
+    }
+    case 'rate':
+      return rateDeal(req.state).level;
+    case 'deal':
+      return findWinnableSeed(req.drawMode, randomSeed, { redeals: req.redeals });
   }
-  parentPort!.postMessage(res);
-});
+}
+
+parentPort!.on('message', (req: WorkerRequest) => parentPort!.postMessage({ answer: answer(req) }));

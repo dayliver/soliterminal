@@ -1,7 +1,7 @@
 /**
  * Measures how many deals the solver can decide and how fast.
  *
- *   node scripts/solver-stats.ts [--count 200] [--draw 1|3] [--nodes 300000] [--ms 5000] [--from 1]
+ *   node scripts/solver-stats.ts [--count 200] [--draw 1|3] [--nodes 300000] [--ms 5000] [--from 1] [--redeals 3|unlimited]
  */
 import { parseArgs } from 'node:util';
 import { deal } from '../src/core/klondike.ts';
@@ -25,8 +25,8 @@ const tally = { solved: 0, unsolvable: 0, unknown: 0 };
 const times: number[] = [];
 const solvedTimes: number[] = [];
 const started = Date.now();
+const redeals = values.redeals === 'unlimited' ? Infinity : Number(values.redeals);
 for (let seed = first; seed < first + count; seed++) {
-  const redeals = values.redeals === 'unlimited' ? Infinity : Number(values.redeals);
   const r = isSolvable(deal(seed, drawMode, redeals), { maxNodes: Number(values.nodes), timeLimitMs: Number(values.ms) });
   tally[r.status]++;
   times.push(r.ms);

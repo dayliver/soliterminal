@@ -11,19 +11,23 @@ import {
   type App,
   type Dealer,
   animating,
-  applyAhead, applyRating, applyShared, playTime, slackCheck, stampDialog,
+  applyAhead,
   applyDeepVerdict,
+  applyRating,
+  applyShared,
   applyVerdict,
   createApp,
   handleKey,
   liveSuspect,
+  playTime,
   resumeApp,
+  slackCheck,
+  stampDialog,
   tick,
   viewOf,
 } from './app.ts';
-import type { KlondikeState } from './core/klondike.ts';
 import { randomSeed } from './core/deck.ts';
-import { DEFAULT_REDEALS, type DrawMode, deal, positionKey, successors } from './core/klondike.ts';
+import { DEFAULT_REDEALS, type DrawMode, type KlondikeState, deal, positionKey, successors } from './core/klondike.ts';
 import { findWinnableSeed } from './core/solver.ts';
 import { SolverClient } from './solver-client.ts';
 import { ansi, diff } from './ui/ansi.ts';
@@ -38,7 +42,7 @@ import type { ScreenBuffer } from './ui/screen.ts';
 import { ACCENTS, isAccent, pickTheme } from './ui/theme.ts';
 
 const AUTO_STEP_MS = 60;
-/** Winnable deals kept ready per draw mode, so `n` never has to wait. */
+/** Winnable deals kept ready per draw mode, so a new game never has to wait. */
 const DEALS_AHEAD = 2;
 
 /** The options; a mistyped one gets a line of help rather than a stack trace. */
@@ -352,8 +356,7 @@ function scheduleAuto(): void {
   if (autoTimer || !animating(app)) return;
   autoTimer = setTimeout(() => {
     autoTimer = undefined;
-    const before = app;
-    app = stampDialog(before, tick(app, Date.now()), Date.now());
+    app = stampDialog(app, tick(app, Date.now()), Date.now());
     saveIfChanged();
     render();
     scheduleAuto();
