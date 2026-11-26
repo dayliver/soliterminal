@@ -361,10 +361,23 @@ describe('game controls', () => {
     assert.equal(app.game.stock.length, 1);
   });
 
-  test('ctrl+q and ctrl+c quit; so does Quit in the menu', () => {
+  test('ctrl+q and ctrl+c quit at once; so does Quit in the menu', () => {
     assert.equal(press(run(board({})), 'ctrl+q').quit, true);
     assert.equal(press(run(board({})), 'ctrl+c').quit, true);
     assert.equal(press(run(board({})), ...menu('quit')).quit, true);
+  });
+
+  test('x asks before quitting: enter or space quits, esc or Keep playing stays', () => {
+    const asked = press(run(board({ tableau: ['| 8S'] })), 'a', 'x');
+    assert.equal(asked.dialog, 'quit');
+    assert.equal(asked.held, undefined);
+    assert.match(viewOf(asked, 0).dialog!.lines[0]!, /kept/);
+    assert.equal(press(asked, 'a').quit, false); // other keys do nothing
+    for (const yes of ['enter', 'space']) assert.equal(press(asked, yes).quit, true, yes);
+    for (const keys of [['escape'], ['down', 'enter']]) {
+      const stay = press(asked, ...keys);
+      assert.deepEqual([stay.dialog, stay.quit], [undefined, false]);
+    }
   });
 
   test('the clock starts on the first move', () => {
@@ -623,7 +636,7 @@ describe('live winnability', () => {
 
   test('no command key collides with a pile key', async () => {
     const { pileForKey } = await import('../src/ui/keymap.ts');
-    for (const k of ['z', 'tab', '?', 'space', 'enter', 'escape', 'backspace', 'left', 'right', 'up', 'down', 'ctrl+q', 'ctrl+c']) {
+    for (const k of ['z', 'x', 'tab', '?', 'space', 'enter', 'escape', 'backspace', 'left', 'right', 'up', 'down', 'ctrl+q', 'ctrl+c']) {
       assert.equal(pileForKey(k), undefined, k);
     }
   });

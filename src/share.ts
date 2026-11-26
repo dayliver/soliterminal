@@ -19,8 +19,8 @@ export const SHARE_EVERY = 100;
 /** The most games one batch carries; any more wait for the next. */
 export const MAX_BATCH = 1000;
 
-/** Where results go: SOLITERMINAL_SHARE_URL if set, else the project's own server once it has one. */
-export const SHARE_URL: string | undefined = undefined;
+/** Where results go: SOLITERMINAL_SHARE_URL if set, else the project's own server. */
+export const SHARE_URL: string | undefined = 'https://soliterminal-share.dayliver.workers.dev/v1/games';
 
 export function shareUrl(env: NodeJS.ProcessEnv): string | undefined {
   return env.SOLITERMINAL_SHARE_URL || SHARE_URL;

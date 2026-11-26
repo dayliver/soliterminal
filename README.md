@@ -131,7 +131,8 @@ If you would rather point than press pile keys:
 | `Tab` | Large or compact cards |
 | `?` | Help |
 | `Esc` | The menu |
-| `Ctrl+Q` | Quit at once; your game is kept (`Ctrl+C` too) |
+| `x` | Quit (asks first; your game is kept) |
+| `Ctrl+Q` | Quit at once; your game is still kept (`Ctrl+C` too) |
 
 Everything else is in the menu. Choose with `↑` `↓` and `Enter` (or `Space`);
 `Esc` backs out. Every other question works the same way.

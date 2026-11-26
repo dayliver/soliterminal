@@ -170,7 +170,7 @@ export interface App {
   readonly quit: boolean;
 }
 
-export type DialogKind = 'menu' | 'restart' | 'new' | 'lost' | 'won' | 'share' | 'seed';
+export type DialogKind = 'menu' | 'restart' | 'new' | 'lost' | 'won' | 'share' | 'seed' | 'quit';
 
 export interface DealsScreen {
   readonly typed: string;
@@ -425,10 +425,22 @@ function confirmSpec(kind: 'restart' | 'new'): DialogSpec {
       };
 }
 
+/** The question x asks; a finished game has nothing to keep. */
+function quitSpec(app: App): DialogSpec {
+  return {
+    title: 'Quit soliterminal?',
+    lines: [app.finishedAt === undefined ? 'Your game is kept: run soliterminal to carry on.' : 'See you next time.'],
+    choices: [{ label: 'Quit', act: (a) => ({ ...a, quit: true }) }, keepPlaying],
+    cancel: carryOn,
+  };
+}
+
 function specOf(app: App): DialogSpec | undefined {
   switch (app.dialog) {
     case undefined:
       return undefined;
+    case 'quit':
+      return quitSpec(app);
     case 'menu':
       return menuSpec(app);
     case 'won':
@@ -1159,6 +1171,8 @@ function press(app: App, key: string, now: number, dealer: Dealer): App {
     }
     case '?':
       return { ...app, showHelp: true };
+    case 'x':
+      return { ...app, held: undefined, dialog: 'quit' };
     default:
       return app;
   }
