@@ -977,15 +977,15 @@ const sameSpot = (a: CursorSpot, b: CursorSpot): boolean =>
   a.kind === 'stock' || b.kind === 'stock' ? a.kind === b.kind : samePile(a, b);
 
 /**
- * Left and right stay on their row: round the seven columns, or along the top
- * row without wrapping. Only up and down change rows.
+ * Left and right stay on their row and go round it: the seven columns, or
+ * the stock, the waste and the four foundations. Only up and down change rows.
  */
 function cursorSideways(app: App, step: 1 | -1): App {
   const c = app.cursor;
   if (c.kind === 'tableau') return { ...app, cursor: pile.tableau((c.index + step + TABLEAU_COLUMNS) % TABLEAU_COLUMNS) };
+  const n = TOP_ROW.length;
   const i = TOP_ROW.findIndex((p) => sameSpot(p, c));
-  const next = TOP_ROW[i + step];
-  return next ? { ...app, cursor: next } : app;
+  return { ...app, cursor: TOP_ROW[(i + step + n) % n]! };
 }
 
 /**

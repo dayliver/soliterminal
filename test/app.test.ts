@@ -120,13 +120,15 @@ describe('cursor', () => {
     assert.deepEqual(press(run(board({})), 'up', 'up').cursor, { kind: 'stock' });
   });
 
-  test('on the top row, left and right go along it without wrapping', () => {
+  test('on the top row, left and right go round it, as they do round the columns', () => {
     let app = press(run(board({})), 'up');
-    assert.deepEqual(press(app, 'left').cursor, { kind: 'stock' });
+    assert.deepEqual(app.cursor, { kind: 'stock' });
+    assert.deepEqual(press(app, 'left').cursor, pile.foundation(3)); // from q round to u
     app = press(app, 'right', 'right');
     assert.deepEqual(app.cursor, pile.foundation(0));
-    app = press(app, 'right', 'right', 'right', 'right');
+    app = press(app, 'right', 'right', 'right');
     assert.deepEqual(app.cursor, pile.foundation(3));
+    assert.deepEqual(press(app, 'right').cursor, { kind: 'stock' }); // and from u back to q
   });
 
   test('down goes straight down, or back to the column the cursor came up from', () => {
