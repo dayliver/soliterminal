@@ -167,4 +167,4 @@ The review checked its changes in four ways:
 | Ctrl+Q in VS Code / Cursor | Not checked whether the editor takes the key first. If it does, say in the README to use Ctrl+C there. |
 | Saving by working out steps | Each save finds the step between every pair of positions (`stepBetween`). Recording the step as each move is made would remove that, but changes the shape of `App`. |
 | Kept on purpose | `input.ts` passes F1-F12 through, and a test checks it. Several exports exist only for tests (`parseCard`, `reachablePositions`, `COLUMN_PITCH`, `BOARD_WIDTH`). Reading `stats.json` and version 1 save files stays for players upgrading. |
-| First npm release | `package.json` is at `0.0.1`. Pick the first public version before `npm publish`, and check that the name `soliterminal` is free. |
+| First npm release | This is `0.1.0-alpha.1`, on GitHub only. After more play-testing, `0.1.0` is the first release and goes to npm. The name `soliterminal` was free on npm on 2026-11-26. |
