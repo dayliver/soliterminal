@@ -5,7 +5,14 @@
 import { parentPort } from 'node:worker_threads';
 import { randomSeed } from './core/deck.ts';
 import type { DrawMode, KlondikeState } from './core/klondike.ts';
-import { type Level, type SolverMove, type Verdict, findWinnableSeed, judge, judgeDeeply, rateDeal } from './core/solver.ts';
+import { type Level, type SolverMove, type Verdict, findWinnableSeed, judge, judgeDeeply, limitMemory, rateDeal } from './core/solver.ts';
+
+/**
+ * Bun, which the standalone binaries run on, ignores a worker's heap limit, so
+ * there the search itself stops once the whole process uses this much.
+ */
+const BUN_PROCESS_MEMORY = 2 * 1024 ** 3;
+if (process.versions.bun) limitMemory(() => process.memoryUsage.rss() > BUN_PROCESS_MEMORY);
 
 export type WorkerRequest =
   | { readonly type: 'judge'; readonly state: KlondikeState; readonly deep: boolean }

@@ -45,6 +45,18 @@ const AUTO_STEP_MS = 60;
 /** Winnable deals kept ready per draw mode, so a new game never has to wait. */
 const DEALS_AHEAD = 2;
 
+/** Set by the standalone build (scripts/build-binaries.ts), which has no package.json to read. */
+declare const SOLITERMINAL_VERSION: string | undefined;
+
+function version(): string | undefined {
+  if (typeof SOLITERMINAL_VERSION === 'string') return SOLITERMINAL_VERSION;
+  try {
+    return (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The options; a mistyped one gets a line of help rather than a stack trace. */
 const { values } = (() => {
   try {
@@ -58,6 +70,7 @@ const { values } = (() => {
         theme: { type: 'string' },
         'any-deal': { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
+        version: { type: 'boolean', short: 'v', default: false },
       },
     });
   } catch (e) {
@@ -65,6 +78,11 @@ const { values } = (() => {
     process.exit(2);
   }
 })();
+
+if (values.version) {
+  process.stdout.write(`soliterminal ${version() ?? '(unknown version)'}\n`);
+  process.exit(0);
+}
 
 if (values.help) {
   process.stdout.write(
@@ -74,6 +92,7 @@ if (values.help) {
       '  --compact     start with small cards (tab switches while playing)\n' +
       `  --theme NAME  colors from your terminal palette: ${Object.keys(ACCENTS).join(', ')} (default green)\n` +
       '  --any-deal    deal any shuffle, not only ones proven winnable\n' +
+      '  --version     print the version\n' +
       '\n' +
       'Environment:\n' +
       '  SOLITERMINAL_CARD=ddd|fff  card face: soft grey-white (default) or pure white\n' +
@@ -249,12 +268,8 @@ function rateIfNeeded(): void {
 
 /** What this program calls itself to the share server: its name and version, nothing more. */
 function clientName(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string };
-    return `soliterminal/${pkg.version ?? '?'}`;
-  } catch {
-    return 'soliterminal';
-  }
+  const v = version();
+  return v ? `soliterminal/${v}` : 'soliterminal';
 }
 
 /**

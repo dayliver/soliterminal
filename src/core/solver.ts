@@ -44,6 +44,16 @@ export interface SolverMove {
   readonly count: number;
 }
 
+/**
+ * A last guard on memory, checked with the clock: a search stops, unanswered,
+ * once this says there is no room left. Node caps a worker's heap by itself;
+ * Bun does not, so its workers set this (see solver-worker.ts).
+ */
+let outOfRoom: () => boolean = () => false;
+export function limitMemory(check: () => boolean): void {
+  outOfRoom = check;
+}
+
 export interface SolveOptions {
   /** Give up after visiting this many positions. */
   readonly maxNodes?: number;
@@ -579,7 +589,7 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
         return { status: 'solved', moves: solution(id, out), nodes: parents.length, ms: Date.now() - start };
       }
       if (!better(key(child, drawMode), child.left)) continue;
-      if (parents.length >= maxNodes || ((parents.length & 1023) === 0 && Date.now() > deadline)) return done('unknown');
+      if (parents.length >= maxNodes || ((parents.length & 1023) === 0 && (Date.now() > deadline || outOfRoom()))) return done('unknown');
       parents.push(id);
       steps.push(out);
       packed.push(pack(child));
