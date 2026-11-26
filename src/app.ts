@@ -326,14 +326,14 @@ function menuSpec(app: App): DialogSpec {
     title: 'Menu',
     lines: [],
     choices: [
-      { label: 'Resume', act: close },
+      { label: 'Back to the game', act: close },
       { label: 'New game', act: (a, now, dealer) => (untouched(a) ? newGame(close(a), dealer, undefined, now) : { ...a, held: undefined, dialog: 'new' }) },
       { label: 'Restart this deal', act: (a) => askRestart(close(a)) },
-      { label: `Switch to Draw ${other}`, act: (a, now, dealer) => switchDraw(close(a), dealer, now) },
+      { label: `Draw ${other} instead`, act: (a, now, dealer) => switchDraw(close(a), dealer, now) },
       { label: 'Hint', act: (a) => showHint(close(a)) },
       { label: 'Play a seed or a recent game', act: (a) => openDeals(close(a)) },
       { label: 'Statistics', act: (a) => ({ ...close(a), held: undefined, showStats: true }) },
-      { label: 'Help', act: (a) => ({ ...close(a), showHelp: true }) },
+      { label: 'Keys and rules', act: (a) => ({ ...close(a), showHelp: true }) },
       { label: 'Quit (your game is kept)', act: (a) => ({ ...a, quit: true }) },
     ],
     cancel: close,
@@ -1103,18 +1103,24 @@ function handleDeals(app: App, screen: DealsScreen, key: string, now: number): A
  * Keys while a dialog is up: up and down choose, enter or space takes the
  * choice, esc backs out. Anything else is ignored.
  */
+/** The letter that picks a choice: the first of its label. Each dialog keeps them distinct. */
+export const choiceKey = (label: string): string => label[0]!.toLowerCase();
+
 function handleDialog(app: App, key: string, dealer: Dealer, now: number): App {
   const spec = specOf(app);
   if (!spec) return close(app);
   const n = spec.choices.length;
+  // A key already on its way when the dialog came up was meant for the board.
+  const tooSoon = app.dialogAt !== undefined && now >= app.dialogAt && now - app.dialogAt < DIALOG_GUARD_MS;
+  const lettered = spec.choices.findIndex((c) => choiceKey(c.label) === key);
+  if (lettered >= 0) return tooSoon ? app : spec.choices[lettered]!.act({ ...app, choice: lettered }, now, dealer);
   switch (key) {
     case 'up':
     case 'down':
       return { ...app, choice: (Math.min(app.choice, n - 1) + (key === 'down' ? 1 : n - 1)) % n };
     case 'enter':
     case 'space':
-      // A key already on its way when the dialog came up was meant for the board.
-      if (app.dialogAt !== undefined && now >= app.dialogAt && now - app.dialogAt < DIALOG_GUARD_MS) return app;
+      if (tooSoon) return app;
       return spec.choices[Math.min(app.choice, n - 1)]!.act(app, now, dealer);
     case 'escape':
       return spec.cancel(app, now, dealer);

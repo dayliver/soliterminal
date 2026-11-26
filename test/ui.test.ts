@@ -399,9 +399,9 @@ describe('cards and dialogs', () => {
     assert.ok(top > 0);
     assert.match(lines[top]!, /╭─ Restart this deal\? ─+╮/);
     assert.match(lines[top + 1]!, /│ Every move so far will be undone\. +│/);
-    assert.match(lines[top + 3]!, /│ › Restart +│/);
-    assert.match(lines[top + 4]!, /│   Keep playing +│/);
-    assert.match(lines[top + 6]!, /│ ↑↓ choose {2}enter select {2}esc back +│/);
+    assert.match(lines[top + 3]!, /│ › \(R\)estart +│/);
+    assert.match(lines[top + 4]!, /│   \(K\)eep playing +│/);
+    assert.match(lines[top + 6]!, /│ ↑↓ or letter choose {2}enter select {2}esc back +│/);
     assert.match(lines[top + 7]!, /╰─+╯/);
     // The box spans the board exactly, and nothing of the board shows beside or under it.
     const x = colX(0);

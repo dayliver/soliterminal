@@ -20,7 +20,7 @@ const HELP: [string, string][] = [
   ['? or /', 'a hint, once you are stuck (asks first)'],
   ['tab', 'large / compact cards'],
   ['esc', 'put held cards back; otherwise the menu:'],
-  ['', '  new game, restart, Draw 1 / 3, hint, seeds, statistics, help'],
+  ['', '  new game, restart, Draw 1 / 3, hint, seeds, statistics, keys'],
   ['x', 'quit (asks first; the game is kept for next time)'],
   ['ctrl+q', 'quit at once (ctrl+c too); the game is still kept'],
   ['', ''],

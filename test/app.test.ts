@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { type App, CEREMONY_MS, abandon, animating, applyAhead, applyDeepVerdict, applyVerdict, createApp, handleKey, liveSuspect, playTime, redealsUsed, slackCheck, stampDialog, tick, viewOf } from '../src/app.ts';
+import { type App, CEREMONY_MS, abandon, choiceKey, animating, applyAhead, applyDeepVerdict, applyVerdict, createApp, handleKey, liveSuspect, playTime, redealsUsed, slackCheck, stampDialog, tick, viewOf } from '../src/app.ts';
 import { statsFor } from '../src/stats.ts';
 import { deal, draw, isWon, pile } from '../src/core/klondike.ts';
 import { normalizeKey } from '../src/ui/input.ts';
@@ -27,7 +27,7 @@ function press(app: App, ...keys: string[]): App {
 const run = (s: ReturnType<typeof board>) => createApp(s);
 
 /** The esc menu, top to bottom. */
-const MENU = ['resume', 'new', 'restart', 'draw', 'hint', 'deals', 'stats', 'help', 'quit'] as const;
+const MENU = ['back', 'new', 'restart', 'draw', 'hint', 'deals', 'stats', 'help', 'quit'] as const;
 /** The keys that choose an item from the esc menu. */
 const menu = (item: (typeof MENU)[number]): string[] => ['escape', ...Array<string>(MENU.indexOf(item)).fill('down'), 'enter'];
 
@@ -366,6 +366,26 @@ describe('game controls', () => {
     const app = press(createApp(deal(1)), 'e');
     assert.match(app.message, /nothing there/);
     assert.deepEqual(app.game, createApp(deal(1)).game);
+  });
+
+  test('a letter picks a choice at once: the first of its label, distinct in every dialog', () => {
+    const app = run(board({ tableau: ['| 8S'] }));
+    const kinds = ['menu', 'restart', 'new', 'lost', 'won', 'share', 'seed', 'quit', 'hint'] as const;
+    for (const dialog of kinds) {
+      const d = viewOf({ ...app, dialog, choice: 0, seedOffer: { seed: 5, drawMode: 1 }, lastWin: undefined }, 0).dialog!;
+      const keys = d.choices.map((c) => choiceKey(c));
+      assert.equal(new Set(keys).size, keys.length, `${dialog}: ${d.choices.join(', ')}`);
+      assert.ok(keys.every((k) => /^[a-z]$/.test(k)), dialog);
+    }
+    // In the menu: s for Statistics, d for the draw mode, q to quit; arrows and enter still work.
+    assert.equal(press(app, 'escape', 's').showStats, true);
+    assert.equal(press(app, 'escape', 'd').nextDrawMode, 3);
+    assert.equal(press(app, 'escape', 'q').quit, true);
+    assert.equal(press(app, 'escape', 'k').showHelp, true);
+    assert.equal(press(app, 'escape', 'b').dialog, undefined);
+    // A letter no choice starts with does nothing; inside a dialog it never reaches the board.
+    const asked = press(app, 'escape', 'w');
+    assert.deepEqual([asked.dialog, asked.game], ['menu', app.game]);
   });
 
   test('ctrl+q and ctrl+c quit at once; so does Quit in the menu', () => {

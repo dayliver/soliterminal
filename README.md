@@ -134,18 +134,19 @@ If you would rather point than press pile keys:
 | `x` | Quit (asks first; your game is kept) |
 | `Ctrl+Q` | Quit at once; your game is still kept (`Ctrl+C` too) |
 
-Everything else is in the menu. Choose with `↑` `↓` and `Enter` (or `Space`);
-`Esc` backs out. Every other question works the same way.
+Everything else is in the menu. Press the letter in brackets, `(N)ew game`, or
+choose with `↑` `↓` and `Enter` (or `Space`); `Esc` backs out. Every other
+question works the same way.
 
 | Menu | Action |
 |---|---|
 | New game | A new deal (asks first if a game is under way: giving it up is a loss) |
 | Restart this deal | Start over (asks first; not once it is won) |
-| Switch to Draw 3 / Draw 1 | At once on an untouched deal, otherwise from the next one |
+| Draw 3 / Draw 1 instead | At once on an untouched deal, otherwise from the next one |
 | Hint | Same as `?` |
 | Play a seed or a recent game | Type a seed, or pick one of your games |
 | Statistics | Your record, per draw mode |
-| Help | The keys |
+| Keys and rules | The keys |
 | Quit | Your game is kept |
 
 After a win the results offer Quit too: the next start deals a new game. The

@@ -412,8 +412,9 @@ function fanPieces(fan: readonly Card[], look: Look, room: number): string[] {
  * beside it, with a blank row under it so none peeks out below either.
  */
 function drawDialog(buf: ScreenBuffer, d: Dialog, g: Glyphs, left: number, board: number, bottom: number): void {
-  const hint = `${g.updown} choose  enter select  esc back`;
-  const rows = [...d.lines, ...(d.lines.length > 0 ? [''] : []), ...d.choices.map((label) => `${g.prompt} ${label}`), '', hint];
+  const hint = `${g.updown} or letter choose  enter select  esc back`;
+  // Each choice shows the letter that picks it: (N)ew game.
+  const rows = [...d.lines, ...(d.lines.length > 0 ? [''] : []), ...d.choices.map((label) => `${g.prompt} (${label[0]})${label.slice(1)}`), '', hint];
   const needed = Math.max(textWidth(d.title) + 6, ...rows.map((r) => textWidth(r) + 4));
   const boxWidth = Math.min(buf.width - 2, Math.max(board, needed));
   const x = Math.max(1, Math.min(left - Math.floor((boxWidth - board) / 2), buf.width - 1 - boxWidth));
@@ -438,7 +439,11 @@ function drawDialog(buf: ScreenBuffer, d: Dialog, g: Glyphs, left: number, board
       if (on) buf.put(x + 1, ry, ' '.repeat(boxWidth - 2), { bg: 'cursor' });
       const bg = on ? 'cursor' : 'none';
       const mx = buf.put(x + 2, ry, on ? g.prompt : ' ', { fg: 'key', bold: true, bg });
-      buf.put(mx + 1, ry, d.choices[choice]!, { fg: 'text', bold: on, bg });
+      const label = d.choices[choice]!;
+      let cx = buf.put(mx + 1, ry, '(', { fg: 'dim', bg });
+      cx = buf.put(cx, ry, label[0]!, { fg: 'key', bold: true, bg });
+      cx = buf.put(cx, ry, ')', { fg: 'dim', bg });
+      buf.put(cx, ry, label.slice(1), { fg: 'text', bold: on, bg });
     } else {
       buf.put(x + 2, ry, text, { fg: i === rows.length - 1 ? 'dim' : 'text' });
     }
