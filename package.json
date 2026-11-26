@@ -1,0 +1,41 @@
+{
+  "name": "soliterminal",
+  "version": "0.0.1",
+  "description": "Klondike solitaire in the terminal, for the minutes your AI agent is working. Every deal is winnable.",
+  "keywords": [
+    "solitaire",
+    "klondike",
+    "terminal",
+    "cli",
+    "game",
+    "tui"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "soliterminal": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/preview.js",
+    "README.md",
+    "README.ko.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "start": "node src/cli.ts",
+    "preview": "node src/preview.ts",
+    "peek": "node scripts/peek.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
