@@ -278,7 +278,8 @@ and the day it was played, with a random name for the game. Besides that, a
 random name for your installation, made up on your computer so that a game sent
 twice counts once, and the soliterminal version. Nothing else: no name,
 account, address, file paths or times of day. The server code is in
-[`server/`](https://github.com/dayliver/soliterminal/tree/main/server).
+[`server/`](https://github.com/dayliver/soliterminal/tree/main/server), described in
+[DEVELOPMENT.md](DEVELOPMENT.md#share-server).
 
 ## Options
 
@@ -335,11 +336,9 @@ npm run preview  # print one static frame
 npm run peek     # show the game in progress and whether it can still be won
 ```
 
-The game has no runtime dependencies. The rules are in `src/core/klondike.ts`,
-the solver in `src/core/solver.ts` (it runs on worker threads, so the screen
-never waits for it), the app's state machine in `src/app.ts`, and the drawing in
-`src/ui/`. The share server, a Cloudflare Worker with a D1 database, is in
-`server/`.
+The game has no runtime dependencies. How the code is laid out, the decisions
+behind it, the share server and what is still open are in
+[DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## License
 

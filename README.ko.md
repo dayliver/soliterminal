@@ -265,7 +265,8 @@ iTerm2, Windows Terminal, GNOME Terminal, Konsole). tmux에서는
 진 수와 난이도(진 판), 플레이한 날짜, 그리고 판마다 무작위로 붙인 이름입니다. 그
 밖에는 같은 판이 두 번 들어가도 한 번만 세도록 내 컴퓨터에서 무작위로 만든 설치 이름
 하나와 soliterminal 버전만 보냅니다. 이름, 계정, 주소, 파일 경로, 시각은 보내지
-않습니다. 서버 코드는 [`server/`](https://github.com/dayliver/soliterminal/tree/main/server)에 있습니다.
+않습니다. 서버 코드는 [`server/`](https://github.com/dayliver/soliterminal/tree/main/server)에 있고,
+설명은 [DEVELOPMENT.md](DEVELOPMENT.md#share-server)에 있습니다.
 
 ## 옵션
 
@@ -321,10 +322,8 @@ npm run preview  # 정지 화면 한 장 출력
 npm run peek     # 진행 중인 게임과 아직 이길 수 있는지 보기
 ```
 
-실행에 필요한 의존성은 없습니다. 규칙은 `src/core/klondike.ts`, 솔버는
-`src/core/solver.ts`(워커 스레드에서 돌아서 화면이 솔버를 기다리는 일이 없습니다),
-앱의 상태 기계는 `src/app.ts`, 그리기는 `src/ui/`에 있습니다. 공유 서버(Cloudflare
-Worker와 D1 데이터베이스)는 `server/`에 있습니다.
+실행에 필요한 의존성은 없습니다. 코드 구조와 설계 결정, 공유 서버, 남은 과제는
+[DEVELOPMENT.md](DEVELOPMENT.md)(영어)에 정리해 두었습니다.
 
 ## 라이선스
 
