@@ -120,7 +120,7 @@ export interface App {
   readonly held?: Held;
   readonly message: string;
   readonly stall: Stall;
-  /** The player went through the whole stock without a move: `h` gives a hint. */
+  /** The player went through the whole stock without a move: the game says a move is there. */
   readonly stalled: boolean;
   /** The first move of a win the solver found from position `version`. */
   readonly hint?: { readonly version: number; readonly move: SolverMove };
@@ -450,7 +450,7 @@ function confirmSpec(kind: 'restart' | 'new'): DialogSpec {
 function hintSpec(): DialogSpec {
   return {
     title: 'Show a hint?',
-    lines: ['The solver knows a move you have not tried.'],
+    lines: ['The solver will show its next move toward a win.'],
     choices: [{ label: 'Show the hint', act: (a) => showHint(close(a)) }, keepPlaying],
     cancel: carryOn,
   };
@@ -857,9 +857,8 @@ function watchStall(before: App, after: App): App {
   return next;
 }
 
-/** `h`: the solver's next move, but only once the player has gone round the stock without one. */
+/** The solver's next move toward a win, whenever the player asks for it. */
 function showHint(app: App): App {
-  if (!app.stalled) return say(app, 'Hints open up once you go through the whole stock without a move.');
   if (app.status === 'checking') return say(app, 'Still checking this position. Ask again in a moment.');
   const move = app.hint?.version === app.version ? app.hint.move : undefined;
   if (app.status !== 'winnable' || !move) return say(app, 'No hint here: a win from this position is not confirmed.');
@@ -900,7 +899,7 @@ function showHint(app: App): App {
 
 /** ?: asks before showing a hint, when there is one to show; otherwise says why not. */
 function askHint(app: App): App {
-  const ready = app.stalled && app.status === 'winnable' && app.hint?.version === app.version;
+  const ready = app.status === 'winnable' && app.hint?.version === app.version;
   return ready ? { ...app, held: undefined, dialog: 'hint' } : showHint(app);
 }
 

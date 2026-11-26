@@ -129,7 +129,7 @@ If you would rather point than press pile keys:
 |---|---|
 | `z` | Undo, as far back as the deal (`Backspace` too) |
 | `Tab` | Large or compact cards |
-| `?` (or `/`) | Hint, once you are stuck: asks first, then shows it (see [Hints](#hints)) |
+| `?` (or `/`) | Hint: asks first, then shows the solver's next move (see [Hints](#hints)) |
 | `Esc` | The menu |
 | `x` | Quit (asks first; your game is kept) |
 | `Ctrl+Q` | Quit at once; your game is still kept (`Ctrl+C` too) |
@@ -189,10 +189,12 @@ so a mistake made once is caught instantly the next time.
 ### Hints
 
 The solver sees the face-down cards, so it may know of a win you cannot see:
-moving part of a run, say, or taking a card back down from a foundation. Go once
-through the whole stock without playing a card (or press `q` with nothing left
-to draw) and the game tells you a move is there; from then on `?` offers the
-solver's next move. Play any card and the hint closes again.
+moving part of a run, say, or taking a card back down from a foundation. Press
+`?` at any time, as often as you like: it asks once, then shows the solver's
+next move toward a win. While the solver is still checking a position, or
+when no win from it is confirmed, it says so instead. Go once through the whole
+stock without playing a card (or press `q` with nothing left to draw) and the
+game tells you on its own that a move is there.
 
 ## Your games
 

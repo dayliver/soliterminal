@@ -17,7 +17,7 @@ const HELP: [string, string][] = [
   ['space', 'pick up / put down at the cursor; draw on the stock'],
   ['enter', "move the cursor's cards to the best spot"],
   ['z', 'undo'],
-  ['? or /', 'a hint, once you are stuck (asks first)'],
+  ['? or /', 'a hint: the solver\'s next move (asks first)'],
   ['tab', 'large / compact cards'],
   ['esc', 'put held cards back; otherwise the menu:'],
   ['', '  new game, restart, Draw 1 / 3, hint, seeds, statistics, keys'],
@@ -27,7 +27,7 @@ const HELP: [string, string][] = [
   ['', 'Win ✓ in the header: this position can still be won.'],
   ['', 'Win 0%: it cannot. You will be offered a retry.'],
   ['', '↺3 under the stock: redeals left (turning the waste over).'],
-  ['', 'A hint opens up after a trip through the stock with no move.'],
+  ['', 'A trip through the stock with no move: the game says one is there.'],
   ['', 'The cursor stays where cards came from: what turns up there is next.'],
 ];
 

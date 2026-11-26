@@ -882,26 +882,24 @@ describe('hints after going round the stock', () => {
     return app;
   };
 
-  test('? asks first once a hint is there, then shows it; before that it says why not', () => {
+  test('? asks first, then shows the hint, at any time and as often as asked', () => {
     let app = play(createApp(position()), 'q');
-    assert.match(press(app, '?').message, /Hints open up/);
-    assert.equal(press(app, '?').dialog, undefined);
-    app = play(app, 'q', 'q', 'q'); // round the stock: stalled
+    assert.equal(app.stalled, false); // no need to be stuck
+    for (let i = 0; i < 3; i++) {
+      const again = press(app, '?', 'enter');
+      assert.match(again.message, /Hint: 7♦ from the waste/);
+      app = again;
+    }
+    // Not checked yet: it says so, with nothing to ask.
+    const checking = press({ ...app, status: 'checking' }, '?');
+    assert.deepEqual([checking.dialog, checking.message], [undefined, 'Still checking this position. Ask again in a moment.']);
     const asked = press(app, '/');
     assert.equal(asked.dialog, 'hint');
     assert.equal(viewOf(asked, 0).dialog!.title, 'Show a hint?');
-    assert.match(press(asked, 'enter').message, /Hint: draw until 7♦/);
+    assert.match(press(asked, 'enter').message, /Hint: 7♦ from the waste/);
     const no = press(asked, 'escape');
     assert.equal(no.dialog, undefined);
     assert.doesNotMatch(no.message, /Hint:/);
-  });
-
-  test('the hint gives nothing before the whole stock has gone by', () => {
-    const app = play(createApp(position()), 'q', 'q');
-    assert.equal(app.stalled, false);
-    const after = press(app, ...menu('hint'));
-    assert.equal(after.showHelp, false);
-    assert.match(after.message, /Hints open up/);
   });
 
   test('turning the waste over with nothing played opens the hint', () => {
@@ -938,7 +936,6 @@ describe('hints after going round the stock', () => {
     app = play(app, 'w', 'a');
     assert.equal(labels(app.game.tableau[0]!.up), '8S 7D');
     assert.equal(app.stalled, false);
-    assert.match(press(app, ...menu('hint')).message, /Hints open up/);
   });
 
   test('running out of stock with no redeals left also counts', () => {
