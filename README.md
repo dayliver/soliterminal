@@ -1,10 +1,14 @@
 # soliterminal
 
-**Klondike solitaire for the terminal, played entirely from the keyboard.**
-Every deal can be won, a built-in solver tells you the moment it no longer
-can, and your game waits for you whenever you have to go.
+**Klondike solitaire for the terminal, with a solver watching every move.**
+Every deal is proven winnable before you see it. The header says, move by move,
+whether you can still win, and a move that loses the game is caught the moment
+you make it: one key takes it back. Played entirely from the keyboard, with no
+dependencies, and your game waits for you whenever you have to go.
 
 [한국어](README.ko.md)
+
+![A game of soliterminal: the solver's line, a losing move caught, and one key to take it back](docs/demo.gif)
 
 ```
  soliterminal · Klondike · Draw 1      Moves 46  03:41  Win ✓
@@ -28,23 +32,10 @@ can, and your game waits for you whenever you have to go.
  arrows select  space pick/drop  tab card size  esc menu
 ```
 
-<sub>Compact cards, as drawn in any terminal; X is a ten. Large cards draw their suits as emoji.</sub>
-
-## Why
-
-More and more of a developer's day goes to handing work to an AI agent and
-waiting for it to finish. Those minutes are too short to start something else
-and too long to stare at a scrolling log. soliterminal is something to do with
-them: a quick game in the terminal you already have open, which you can drop the
-moment your agent needs you and pick up again later, exactly where you left it.
+<sub>The recording is a real game with large cards. This is compact cards (`Tab`), as drawn in any terminal; X is a ten.</sub>
 
 ## Highlights
 
-- **Keys where the piles are.** The key above each pile is the key in the same
-  place on your keyboard: the top letter row for the top of the board (`q` the
-  stock, `w` the waste, `r` to `u` the foundations) and the home row for the
-  seven columns (`a` to `j`). No function keys, so it works the same in any
-  terminal, laptop or editor. Arrow keys work too.
 - **Every deal can be won.** The solver proves each new deal winnable before
   you see it.
 - **It tells you when you have lost.** The header shows, move by move, whether
@@ -54,6 +45,11 @@ moment your agent needs you and pick up again later, exactly where you left it.
   move ahead. Pick up cards with a losing place to go and you are warned,
   without being told which place. When winning takes every redeal you have
   left, the header says so too.
+- **Keys where the piles are.** The key above each pile is the key in the same
+  place on your keyboard: the top letter row for the top of the board (`q` the
+  stock, `w` the waste, `r` to `u` the foundations) and the home row for the
+  seven columns (`a` to `j`). No function keys, so it works the same in any
+  terminal, laptop or editor. Arrow keys work too.
 - **Your game keeps.** Quit any time; the next start carries on with the board,
   the undo history and the clock. The clock also stops while you are in another
   window.
@@ -297,6 +293,7 @@ soliterminal --draw 3 --theme blue
 | `--any-deal` | Deal any shuffle, not only winnable ones |
 | `--ascii` | Plain ASCII: no box drawing, suit symbols or emoji |
 | `-h`, `--help` | Show usage |
+| `-v`, `--version` | Print the version |
 
 | Environment variable | Meaning |
 |---|---|
@@ -324,6 +321,14 @@ sharing stands. A `stats.json` from an earlier version is moved into
   right everywhere.
 - **Colors.** The interface uses your terminal's 16-color palette, so it fits
   your theme, light or dark. Only the cards have fixed colors.
+
+## Why
+
+More and more of a developer's day goes to handing work to an AI agent and
+waiting for it to finish. Those minutes are too short to start something else
+and too long to stare at a scrolling log. soliterminal is something to do with
+them: a quick game in the terminal you already have open, which you can drop the
+moment your agent needs you and pick up again later, exactly where you left it.
 
 ## Development
 

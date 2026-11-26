@@ -1,10 +1,11 @@
 {
   "name": "soliterminal",
   "version": "0.1.0-alpha.1",
-  "description": "Klondike solitaire in the terminal, for the minutes your AI agent is working. Every deal is winnable.",
+  "description": "Klondike solitaire in the terminal with a built-in solver: every deal is winnable, and it tells you the moment a game no longer is.",
   "keywords": [
     "solitaire",
     "klondike",
+    "solver",
     "terminal",
     "cli",
     "game",
