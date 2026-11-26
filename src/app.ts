@@ -170,7 +170,7 @@ export interface App {
   readonly quit: boolean;
 }
 
-export type DialogKind = 'menu' | 'restart' | 'new' | 'lost' | 'won' | 'share' | 'seed' | 'quit';
+export type DialogKind = 'menu' | 'restart' | 'new' | 'lost' | 'won' | 'share' | 'seed' | 'quit' | 'hint';
 
 export interface DealsScreen {
   readonly typed: string;
@@ -183,12 +183,28 @@ export interface DealsScreen {
 /** Seeds are 32-bit. */
 const MAX_SEED = 0xffff_ffff;
 
-const WELCOME = 'Press a pile key, then where it goes. Esc for the menu, ? for help.';
+const WELCOME = 'Press a pile key, then where it goes. Esc for the menu.';
 
-const STALLED = 'This game can still be won, there is a move you have not tried. Hint in the menu (esc) shows it.';
+const STALLED = 'This game can still be won, there is a move you have not tried. ? shows it.';
 
-/** Enter or space this soon after a dialog comes up was meant for the board, not the dialog. */
+/**
+ * Enter or space this soon after a dialog comes up on its own was meant for
+ * the board, not the dialog. Dialogs the player opens are answered at once.
+ */
 export const DIALOG_GUARD_MS = 700;
+
+/** Dialogs that come up without the player asking: a loss found, sharing after a win, a seed at start. */
+const UNPROMPTED: ReadonlySet<DialogKind> = new Set(['lost', 'share', 'seed']);
+
+/**
+ * After any change: a dialog that has just come up starts on its first
+ * choice, and one that came up on its own notes when, for the guard.
+ */
+export function stampDialog(before: App, after: App, now: number): App {
+  if (after.dialog === undefined || after.dialog === before.dialog) return after;
+  const { dialogAt: _, ...rest } = after;
+  return UNPROMPTED.has(after.dialog) ? { ...rest, choice: 0, dialogAt: now } : { ...rest, choice: 0 };
+}
 
 /** How long the win ceremony runs before the results come up. */
 export const CEREMONY_MS = 2_500;
@@ -346,6 +362,8 @@ function wonSpec(app: App): DialogSpec {
       { label: 'Choose a deal', act: (a) => openDeals(close(a)) },
       { label: 'Statistics', act: (a) => ({ ...close(a), showStats: true }) },
       { label: 'Look at the board', act: look },
+      // Nothing to keep: the next start deals a new game.
+      { label: 'Quit', act: (a) => ({ ...a, quit: true }) },
     ],
     cancel: look,
   };
@@ -355,13 +373,15 @@ function wonSpec(app: App): DialogSpec {
 function shareSpec(app: App): DialogSpec {
   const total = finishedGames(app.stats);
   const n = (x: number) => x.toLocaleString('en-US');
+  // Asked after a win: either answer goes on to the results.
+  const results = (a: App): App => (a.finishedAt !== undefined ? { ...a, dialog: 'won' } : close(a));
   const notNow = (a: App): App => {
     const next = (Math.floor(finishedGames(a.stats) / SHARE_EVERY) + 1) * SHARE_EVERY;
-    return say({ ...close(a), stats: declineShare(a.stats) }, `Not sent. You will be asked again at ${n(next)} games.`);
+    return say({ ...results(a), stats: declineShare(a.stats) }, `Not sent. You will be asked again at ${n(next)} games.`);
   };
   const next = (Math.floor(total / SHARE_EVERY) + 1) * SHARE_EVERY;
   return {
-    title: `${n(total)} games played!`,
+    title: `You won, and that makes ${n(total)} games!`,
     lines: [
       'Send your results to Klondike research?',
       `${n(Math.min(unsent(app.stats).length, MAX_BATCH))} games: seed, mode, result, time, moves.`,
@@ -369,7 +389,7 @@ function shareSpec(app: App): DialogSpec {
       `Not now asks again at ${n(next)}, with all games.`,
     ],
     choices: [
-      { label: 'Send', act: (a) => say({ ...close(a), stats: acceptShare(a.stats) }, 'Thank you! Sending your results...') },
+      { label: 'Send', act: (a) => say({ ...results(a), stats: acceptShare(a.stats) }, 'Thank you! Sending your results...') },
       { label: 'Not now', act: notNow },
     ],
     cancel: notNow,
@@ -388,6 +408,7 @@ function lostSpec(app: App): DialogSpec {
       { label: 'Restart this deal', act: (a) => restart(a) },
       { label: 'New deal', act: (a, now, dealer) => newGame(a, dealer, undefined, now) },
       { label: 'Play on', act: playOn },
+      { label: 'Quit (your game is kept)', act: (a) => ({ ...a, quit: true }) },
     ],
     cancel: playOn,
     danger: true,
@@ -425,6 +446,16 @@ function confirmSpec(kind: 'restart' | 'new'): DialogSpec {
       };
 }
 
+/** ? when a hint is there to give: asked first, since seeing it is a choice. */
+function hintSpec(): DialogSpec {
+  return {
+    title: 'Show a hint?',
+    lines: ['The solver knows a move you have not tried.'],
+    choices: [{ label: 'Show the hint', act: (a) => showHint(close(a)) }, keepPlaying],
+    cancel: carryOn,
+  };
+}
+
 /** The question x asks; a finished game has nothing to keep. */
 function quitSpec(app: App): DialogSpec {
   return {
@@ -441,6 +472,8 @@ function specOf(app: App): DialogSpec | undefined {
       return undefined;
     case 'quit':
       return quitSpec(app);
+    case 'hint':
+      return hintSpec();
     case 'menu':
       return menuSpec(app);
     case 'won':
@@ -482,7 +515,7 @@ export function viewOf(app: App, now: number): View {
     status: app.status,
     dialog: dialogView(app),
     // The confetti keeps falling behind the results until they are put away.
-    celebration: (app.celebrating || app.dialog === 'won') && app.finishedAt !== undefined ? now - app.finishedAt : undefined,
+    celebration: (app.celebrating || afterWin(app)) && app.finishedAt !== undefined ? now - app.finishedAt : undefined,
   };
 }
 
@@ -609,10 +642,18 @@ function focus(app: App, now: number): App {
   return { ...app, pausedAt: undefined, pausedMs: app.pausedMs + away };
 }
 
-/** Ends the ceremony and shows the results. */
+/**
+ * Ends the ceremony and shows the results; first, when a new hundred games
+ * is reached and a server takes them, the question about sharing them. A win
+ * is the time to ask, never the middle of a game or the start of one.
+ */
 function endCeremony(app: App): App {
-  return { ...app, celebrating: false, dialog: 'won' };
+  const ask = app.canShare && shareDue(app.stats);
+  return { ...app, celebrating: false, dialog: ask ? 'share' : 'won' };
 }
+
+/** Right after a win: the results, or the question before them. The confetti keeps falling behind both. */
+const afterWin = (app: App): boolean => app.finishedAt !== undefined && (app.dialog === 'won' || app.dialog === 'share');
 
 /**
  * Leaving this play of the deal unfinished ends the win streak. New deals
@@ -721,9 +762,7 @@ function commit(app: App, result: Result, now: number, onError: (e: MoveError) =
     message: '',
     startedAt: app.startedAt ?? now,
   };
-  // The cursor follows cards onto the column they landed on.
-  const landed = landedOn(app.game, result.state);
-  if (landed !== undefined) next = { ...next, cursor: pile.tableau(landed) };
+  // The cursor stays where the cards came from: the card turned up there, or the next one in the waste, is usually what comes next.
   // The first card moved makes this a played game. Drawing alone only looks through the stock.
   if (next.play === 'fresh' && !isDraw) next = { ...next, play: 'counted', gameAt: now };
   if (canAutoComplete(next.game)) {
@@ -735,20 +774,6 @@ function commit(app: App, result: Result, now: number, onError: (e: MoveError) =
     };
   }
   return winIfDone(next, now);
-}
-
-/**
- * The tableau column that gained cards from somewhere else in this move, if
- * any. A card turned face up in the column a run left is not counted: it was
- * already there.
- */
-function landedOn(before: KlondikeState, after: KlondikeState): number | undefined {
-  const key = (c: { suit: string; rank: number }) => c.suit + c.rank;
-  for (let i = 0; i < after.tableau.length; i++) {
-    const had = new Set([...before.tableau[i]!.down, ...before.tableau[i]!.up].map(key));
-    if (after.tableau[i]!.up.some((c) => !had.has(key(c)))) return i;
-  }
-  return undefined;
 }
 
 const TABLEAU_TARGETS = Array.from({ length: TABLEAU_COLUMNS }, (_, i) => pile.tableau(i));
@@ -873,6 +898,12 @@ function showHint(app: App): App {
   }
 }
 
+/** ?: asks before showing a hint, when there is one to show; otherwise says why not. */
+function askHint(app: App): App {
+  const ready = app.stalled && app.status === 'winnable' && app.hint?.version === app.version;
+  return ready ? { ...app, held: undefined, dialog: 'hint' } : showHint(app);
+}
+
 /** Sends cards to the best spot: exactly `count` of them if given, else whatever fits. */
 function autoFrom(app: App, from: PileId, now: number, count?: number): App {
   if (count === undefined) return commit(app, autoMove(app.game, from), now, (e) => explain(app, e, from));
@@ -894,7 +925,7 @@ function fresh(app: App, game: KlondikeState, verified: boolean, message: string
 function newGame(app: App, dealer: Dealer, drawMode = app.nextDrawMode, now?: number): App {
   const { seed, verified } = dealer(drawMode);
   const left = abandon(app, now);
-  return offerShare({ ...fresh(left, deal(seed, drawMode, app.redeals), verified, greeting(left, seed, drawMode, 'New game.')), nextDrawMode: drawMode });
+  return { ...fresh(left, deal(seed, drawMode, app.redeals), verified, greeting(left, seed, drawMode, 'New game.')), nextDrawMode: drawMode };
 }
 
 /**
@@ -1009,15 +1040,7 @@ function trackColumn(before: App, after: App): App {
 /** A particular deal, chosen by seed: not checked first, so the solver judges it as play starts. */
 function playSeed(app: App, seed: number, drawMode: DrawMode, now: number): App {
   const left = abandon(app, now);
-  return offerShare({ ...fresh(left, deal(seed, drawMode, app.redeals), false, greeting(left, seed, drawMode, `Seed ${seed}, Draw ${drawMode}.`)), nextDrawMode: drawMode });
-}
-
-/**
- * Each new thousand of finished games, between games, asks once whether to
- * share them for research. Never in the middle of a game.
- */
-export function offerShare(app: App): App {
-  return app.canShare && !app.dialog && app.game.moves === 0 && shareDue(app.stats) ? { ...app, dialog: 'share' } : app;
+  return { ...fresh(left, deal(seed, drawMode, app.redeals), false, greeting(left, seed, drawMode, `Seed ${seed}, Draw ${drawMode}.`)), nextDrawMode: drawMode };
 }
 
 /** The answer came back from the server: the games sent are marked, or the batch waits for the next start. */
@@ -1109,9 +1132,7 @@ function handleDialog(app: App, key: string, dealer: Dealer, now: number): App {
  * both are passed in so tests stay deterministic.
  */
 export function handleKey(app: App, key: string, now: number, dealer: Dealer): App {
-  const next = trackColumn(app, press(app, key, now, dealer));
-  // A dialog that comes up starts on its first choice.
-  return next.dialog !== app.dialog && next.dialog !== undefined ? { ...next, choice: 0, dialogAt: now } : next;
+  return stampDialog(app, trackColumn(app, press(app, key, now, dealer)), now);
 }
 
 function press(app: App, key: string, now: number, dealer: Dealer): App {
@@ -1170,7 +1191,10 @@ function press(app: App, key: string, now: number, dealer: Dealer): App {
       return { ...moved(app, prev, app.history.slice(0, -1)), finishedAt: undefined, message: 'Undone.' };
     }
     case '?':
-      return { ...app, showHelp: true };
+    case '/':
+      return askHint(app);
+    case 'e':
+      return say(app, 'e sits over the gap in the top row: nothing there. Esc for the menu.');
     case 'x':
       return { ...app, held: undefined, dialog: 'quit' };
     default:
@@ -1255,7 +1279,7 @@ export function applyAhead(app: App, game: KlondikeState, verdict: Verdict, next
 
 /** Whether the runner should keep ticking: auto-complete steps, the ceremony, or confetti behind the results. */
 export function animating(app: App): boolean {
-  return app.autoQueue.length > 0 || app.celebrating || app.dialog === 'won';
+  return app.autoQueue.length > 0 || app.celebrating || afterWin(app);
 }
 
 /**

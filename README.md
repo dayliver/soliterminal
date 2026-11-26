@@ -120,7 +120,7 @@ If you would rather point than press pile keys:
 | `↑` `↓` | Move to the pile straight above or below (column 1↔stock, columns 2 and 3↔waste, columns 4 to 7↔foundations) |
 | `↓` in a column | Choose how many cards to move: the cursor goes onto the top card of the run (say a K), then one card further down each press (Q, J, …). The chosen card is tinted, and it moves with every card below it. `↑` goes back |
 | `Space` | Pick up or put down at the cursor. On the stock, draw |
-| `Enter` | Send the cursor's cards to the best spot |
+| `Enter` | Send the cursor's cards to the best spot. The cursor stays where they came from, on the card that turns up there |
 | `Esc` | Put held cards back. With nothing held, open the menu |
 
 ### Keys and the menu
@@ -129,7 +129,7 @@ If you would rather point than press pile keys:
 |---|---|
 | `z` | Undo, as far back as the deal (`Backspace` too) |
 | `Tab` | Large or compact cards |
-| `?` | Help |
+| `?` (or `/`) | Hint, once you are stuck: asks first, then shows it (see [Hints](#hints)) |
 | `Esc` | The menu |
 | `x` | Quit (asks first; your game is kept) |
 | `Ctrl+Q` | Quit at once; your game is still kept (`Ctrl+C` too) |
@@ -142,11 +142,14 @@ Everything else is in the menu. Choose with `↑` `↓` and `Enter` (or `Space`)
 | New game | A new deal (asks first if a game is under way: giving it up is a loss) |
 | Restart this deal | Start over (asks first; not once it is won) |
 | Switch to Draw 3 / Draw 1 | At once on an untouched deal, otherwise from the next one |
-| Hint | Once you are stuck (see [Hints](#hints)) |
+| Hint | Same as `?` |
 | Play a seed or a recent game | Type a seed, or pick one of your games |
 | Statistics | Your record, per draw mode |
 | Help | The keys |
 | Quit | Your game is kept |
+
+After a win the results offer Quit too: the next start deals a new game. The
+`Win 0%` choices offer it as well, and keep the game.
 
 Three redeals are allowed by default (`--redeals` changes it). How many are
 left is always shown under the stock: `↺2`, in red at `↺0`.
@@ -187,8 +190,8 @@ so a mistake made once is caught instantly the next time.
 The solver sees the face-down cards, so it may know of a win you cannot see:
 moving part of a run, say, or taking a card back down from a foundation. Go once
 through the whole stock without playing a card (or press `q` with nothing left
-to draw) and the game tells you a move is there; from then on Hint in the menu
-shows the solver's next move. Play any card and the hint closes again.
+to draw) and the game tells you a move is there; from then on `?` offers the
+solver's next move. Play any card and the hint closes again.
 
 ## Your games
 
@@ -259,8 +262,9 @@ draw mode. A deal you lost before says so when it comes back, with the date
 ### Sharing results
 
 Nothing leaves your computer on its own. When your finished games reach 100,
-and again at 200, 300 and so on, soliterminal asks once, between games, whether
-to send them to open Klondike research data. Say no (`Esc`) and it asks again
+and again at 200, 300 and so on, soliterminal asks once, right after a win and
+before the results, whether to send them to open Klondike research data. It
+never asks in the middle of a game or when you start one. Say no (`Esc`) and it asks again
 at the next hundred; agree (`Enter`) then, and the games not sent yet go, up to
 1,000 at a time. There is no way to send smaller batches: a server taking a
 game at a time from everyone would only be kept busy for nothing.

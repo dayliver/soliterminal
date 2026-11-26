@@ -11,7 +11,7 @@ import {
   type App,
   type Dealer,
   animating,
-  applyAhead, applyRating, applyShared, offerShare, playTime, slackCheck,
+  applyAhead, applyRating, applyShared, playTime, slackCheck, stampDialog,
   applyDeepVerdict,
   applyVerdict,
   createApp,
@@ -191,7 +191,7 @@ if (resumed && saved && (seedAsked === undefined || saved.play === 'counted')) {
   if (seedAsked !== undefined) app = { ...app, dialog: 'seed', choice: 0, seedOffer: { seed: seedAsked, drawMode } };
 } else {
   const first = seedAsked === undefined ? dealer(drawMode) : { seed: seedAsked, verified: false };
-  app = offerShare(createApp(deal(first.seed, drawMode, redeals), { ...options, verified: first.verified }));
+  app = createApp(deal(first.seed, drawMode, redeals), { ...options, verified: first.verified });
 }
 refill(app.game.drawMode);
 
@@ -352,7 +352,8 @@ function scheduleAuto(): void {
   if (autoTimer || !animating(app)) return;
   autoTimer = setTimeout(() => {
     autoTimer = undefined;
-    app = tick(app, Date.now());
+    const before = app;
+    app = stampDialog(before, tick(app, Date.now()), Date.now());
     saveIfChanged();
     render();
     scheduleAuto();
@@ -366,7 +367,7 @@ function judgeIfNeeded(): void {
   const version = app.version;
   judgedVersion = version;
   solver.judge(app.game, (verdict, next) => {
-    app = applyVerdict(app, version, verdict, next);
+    app = stampDialog(app, applyVerdict(app, version, verdict, next), Date.now());
     render();
     deepIfNeeded();
     lookAheadIfNeeded();
@@ -389,7 +390,7 @@ function lookAheadIfNeeded(): void {
     // Answers only arrive while the position is unchanged: a move cancels them.
     solver.lookAhead(child, deep, (verdict, next) => {
       if (!deep && verdict === 'unclear') ask(child, true);
-      app = applyAhead(app, child, verdict, next);
+      app = stampDialog(app, applyAhead(app, child, verdict, next), Date.now());
       render();
     });
   // First whether any redeal is to spare, then each move.
@@ -413,7 +414,7 @@ function deepIfNeeded(): void {
   }
   solver.judgeDeeply(suspect, (verdict) => {
     deepOn = undefined;
-    app = applyDeepVerdict(app, suspect, verdict);
+    app = stampDialog(app, applyDeepVerdict(app, suspect, verdict), Date.now());
     render();
     deepIfNeeded();
   });

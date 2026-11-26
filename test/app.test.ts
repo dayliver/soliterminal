@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { type App, CEREMONY_MS, abandon, animating, applyAhead, applyDeepVerdict, applyVerdict, createApp, handleKey, liveSuspect, playTime, redealsUsed, slackCheck, tick, viewOf } from '../src/app.ts';
+import { type App, CEREMONY_MS, abandon, animating, applyAhead, applyDeepVerdict, applyVerdict, createApp, handleKey, liveSuspect, playTime, redealsUsed, slackCheck, stampDialog, tick, viewOf } from '../src/app.ts';
 import { statsFor } from '../src/stats.ts';
 import { deal, draw, isWon, pile } from '../src/core/klondike.ts';
 import { normalizeKey } from '../src/ui/input.ts';
@@ -272,20 +272,21 @@ describe('game controls', () => {
     assert.equal(kept.game.seed, 1);
   });
 
-  test('the cursor follows cards to the column they land on', () => {
+  test('the cursor stays where the cards came from, on the card turned up there', () => {
     const s = board({ tableau: ['| 9C', '', '', '2S 3S | 9H', '', 'KD | 8S'] });
-    // 8♠ from h onto 9♥ on f, with the same key twice.
-    let app = press(run(s), 'h', 'h');
-    assert.deepEqual(app.cursor, pile.tableau(3));
+    // Enter on h (the cursor starts on a; five steps right) sends 8♠ onto 9♥ on f.
+    let app = press(run(s), 'right', 'right', 'right', 'right', 'right', 'enter');
     assert.equal(labels(app.game.tableau[3]!.up), '9H 8S');
-    // K♦ turned face up on h is not a landing: the cursor went with the 8♠.
-    assert.equal(labels(app.game.tableau[5]!.up), 'KD');
-    // Enter on h (the cursor starts on a; five steps right) does the same.
-    app = press(run(s), 'right', 'right', 'right', 'right', 'right', 'enter');
-    assert.deepEqual(app.cursor, pile.tableau(3));
-    // From the waste: 7♦ onto 8♠ lands on h, and the cursor goes there too.
-    app = press(run(board({ waste: '7D', tableau: ['', '', '', '', '', '| 8S'] })), 'w', 'h');
+    // The cursor is still on h, where K♦ has turned up: the next card to play.
     assert.deepEqual(app.cursor, pile.tableau(5));
+    assert.equal(labels(app.game.tableau[5]!.up), 'KD');
+    // With pile keys, the cursor goes to the pile picked from, and stays there.
+    app = press(run(s), 'h', 'h');
+    assert.deepEqual(app.cursor, pile.tableau(5));
+    // From the waste: the cursor stays on the waste, for the next card there.
+    app = press(run(board({ waste: '6C 7D', tableau: ['', '', '', '', '', '| 8S'] })), 'up', 'right', 'enter');
+    assert.equal(labels(app.game.tableau[5]!.up), '8S 7D');
+    assert.deepEqual(app.cursor, pile.waste);
     // To a foundation: the cursor stays put.
     app = press(run(board({ tableau: ['| AS', '| 5D'] })), 'a', 'i');
     assert.equal(app.game.foundations[0]!.length, 1);
@@ -353,12 +354,18 @@ describe('game controls', () => {
     assert.fail('no deal with a column move');
   });
 
-  test('help opens with ? and any key closes it without acting', () => {
-    let app = press(run(board({ stock: '2C' })), '?');
+  test('help opens from the menu and any key closes it without acting', () => {
+    let app = press(run(board({ stock: '2C' })), ...menu('help'));
     assert.equal(app.showHelp, true);
     app = press(app, 'q');
     assert.equal(app.showHelp, false);
     assert.equal(app.game.stock.length, 1);
+  });
+
+  test('e, over the gap in the top row, says there is nothing there', () => {
+    const app = press(createApp(deal(1)), 'e');
+    assert.match(app.message, /nothing there/);
+    assert.deepEqual(app.game, createApp(deal(1)).game);
   });
 
   test('ctrl+q and ctrl+c quit at once; so does Quit in the menu', () => {
@@ -440,7 +447,7 @@ describe('finishing', () => {
     const d = viewOf(done, 0).dialog!;
     assert.equal(d.title, 'You won!');
     assert.match(d.lines.join(' '), /moves in \d\d:\d\d, no redeals\. Draw 1: won 1 of 1 \(100%\)\. Streak 1, longest 1\./);
-    assert.deepEqual(d.choices, ['New deal', 'Choose a deal', 'Statistics', 'Look at the board']);
+    assert.deepEqual(d.choices, ['New deal', 'Choose a deal', 'Statistics', 'Look at the board', 'Quit']);
     assert.equal(d.selected, 0);
     assert.equal(app.stats.games[0]!.redeals, 0);
   });
@@ -546,7 +553,7 @@ describe('live winnability', () => {
     const dialog = viewOf(app, 0).dialog!;
     assert.equal(dialog.danger, true);
     assert.match(dialog.lines.join(' '), /0%.*Try again\?/);
-    assert.deepEqual(dialog.choices, ['Back to the last winnable spot', 'Restart this deal', 'New deal', 'Play on']);
+    assert.deepEqual(dialog.choices, ['Back to the last winnable spot', 'Restart this deal', 'New deal', 'Play on', 'Quit (your game is kept)']);
     // Other keys do nothing while the question is up.
     assert.equal(press(app, 's'), app);
   });
@@ -562,15 +569,24 @@ describe('live winnability', () => {
     assert.equal(abandon(live, 50_000).stats.games[0]!.limit, null); // the hand-built board has no redeal limit
   });
 
-  test('a key already on its way when a dialog comes up is not taken as the answer', () => {
+  test('a dialog that comes up on its own does not take a key already on its way', () => {
+    let app = handleKey(createApp(position(), { verified: true }), 'w', 40_000, seeds());
+    app = handleKey(app, 'a', 41_000, seeds());
+    // The loss arrives from the solver while the player is still pressing keys.
+    app = stampDialog(app, applyVerdict(app, app.version, 'lost'), 50_000);
+    assert.equal(app.dialog, 'lost');
+    assert.equal(app.choice, 0);
+    assert.equal(handleKey(app, 'enter', 50_200, seeds()).dialog, 'lost'); // meant for the board
+    assert.equal(handleKey(app, 'enter', 51_000, seeds()).dialog, undefined); // now it answers
+  });
+
+  test('a dialog the player opens answers at once, starting on its first choice', () => {
     let app = press(createApp(deal(1)), 's', 's');
     app = handleKey(app, 'escape', 50_000, seeds());
     app = handleKey(app, 'down', 50_100, seeds());
-    assert.equal(handleKey(app, 'enter', 50_200, seeds()).dialog, 'menu'); // too soon after the menu came up
-    app = handleKey(app, 'enter', 51_000, seeds());
-    assert.equal(app.dialog, 'new');
-    assert.equal(handleKey(app, 'space', 51_100, seeds()).dialog, 'new');
-    assert.equal(handleKey(app, 'space', 52_000, seeds()).game.seed, 1000);
+    app = handleKey(app, 'enter', 50_200, seeds());
+    assert.deepEqual([app.dialog, app.choice], ['new', 0]);
+    assert.equal(handleKey(app, 'space', 50_300, seeds()).game.seed, 1000);
   });
 
   test('z goes back to the last position proven winnable, even several moves ago', () => {
@@ -844,6 +860,20 @@ describe('hints after going round the stock', () => {
     return app;
   };
 
+  test('? asks first once a hint is there, then shows it; before that it says why not', () => {
+    let app = play(createApp(position()), 'q');
+    assert.match(press(app, '?').message, /Hints open up/);
+    assert.equal(press(app, '?').dialog, undefined);
+    app = play(app, 'q', 'q', 'q'); // round the stock: stalled
+    const asked = press(app, '/');
+    assert.equal(asked.dialog, 'hint');
+    assert.equal(viewOf(asked, 0).dialog!.title, 'Show a hint?');
+    assert.match(press(asked, 'enter').message, /Hint: draw until 7♦/);
+    const no = press(asked, 'escape');
+    assert.equal(no.dialog, undefined);
+    assert.doesNotMatch(no.message, /Hint:/);
+  });
+
   test('the hint gives nothing before the whole stock has gone by', () => {
     const app = play(createApp(position()), 'q', 'q');
     assert.equal(app.stalled, false);
@@ -857,7 +887,7 @@ describe('hints after going round the stock', () => {
     assert.equal(app.stalled, false);
     app = play(app, 'q'); // redeal: every card has been on top
     assert.equal(app.stalled, true);
-    assert.match(app.message, /can still be won.*Hint in the menu/);
+    assert.match(app.message, /can still be won.*\? shows it/);
     app = press(app, ...menu('hint'));
     assert.match(app.message, /Hint: draw until 7♦ is on the waste, then play it to column 1 \(a\)/);
     assert.deepEqual(app.cursor, pile.waste);
@@ -894,7 +924,7 @@ describe('hints after going round the stock', () => {
     assert.equal(app.stalled, false);
     app = play(app, 'q'); // cannot turn the waste over
     assert.equal(app.stalled, true);
-    assert.match(app.message, /Hint in the menu/);
+    assert.match(app.message, /\? shows it/);
   });
 
   test('with no talon at all, pressing the stock key counts at once', () => {

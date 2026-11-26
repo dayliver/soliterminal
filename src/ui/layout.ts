@@ -267,17 +267,18 @@ export function renderKlondike(state: KlondikeState, view: View, options: Layout
   else if (view.message) buf.put(1, footer + 1, `${g.prompt} ${view.message}`, { fg: 'message' });
   buf.put(0, footer + 2, g.divider.repeat(width), { fg: 'dim' });
   if (view.record) drawRecord(buf, footer + 2, state.drawMode, view.record, view.lostBefore);
+  // The first items of each row fit MIN_WIDTH; the last one shows when the window has room.
   const status: [string, string][][] = [
-    [['q', 'draw'], ['w', 'waste'], ['a-j', 'columns'], ['i', 'to foundation'], ['z', 'undo']],
-    // Help is in the menu; the welcome line names ? too. Both rows fit MIN_WIDTH.
-    [['arrows', 'select'], ['space', 'pick/drop'], ['tab', 'card size'], ['esc', 'menu']],
+    [['q', 'draw'], ['w', 'waste'], ['a-j', 'columns'], ['i', 'to foundation'], ['z', 'undo'], ['?', 'hint']],
+    [['arrows', 'select'], ['space', 'pick/drop'], ['tab', 'card size'], ['esc', 'menu'], ['x', 'quit']],
   ];
   status.forEach((items, row) => {
     let x = 1;
-    for (const [k, label] of items) {
+    items.forEach(([k, label], i) => {
+      if (i === items.length - 1 && x + k.length + 1 + label.length > width - 1) return;
       x = buf.put(x, footer + 3 + row, k, { fg: 'key' });
       x = buf.put(x, footer + 3 + row, ` ${label}  `, { fg: 'dim' });
-    }
+    });
   });
 
   if (view.celebration !== undefined) drawConfetti(buf, view.celebration, height - FOOTER_ROWS, ascii);

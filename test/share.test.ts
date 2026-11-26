@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyShared, createApp, handleKey, viewOf } from '../src/app.ts';
+import { CEREMONY_MS, applyShared, createApp, handleKey, stampDialog, tick, viewOf } from '../src/app.ts';
+import { board } from './helpers.ts';
 import { deal } from '../src/core/klondike.ts';
 import { EMPTY_STATS, type GameRecord, type Stats } from '../src/stats.ts';
 import { MAX_BATCH, SHARE_EVERY, acceptShare, declineShare, finishedGames, markShared, shareDue, sharePayload, unsent } from '../src/share.ts';
@@ -71,26 +72,43 @@ describe('sharing results', () => {
     assert.deepEqual(payload.games[1], { id: '00000001', seed: 1, draw: 1, limit: 3, result: 'won', ms: 60_001, moves: 100, redeals: 1, day: '2026-11-01' });
   });
 
-  test('the question comes between games, only when a server is set up; enter or space sends, esc does not', () => {
-    const s = stats(played(100));
+  test('the question comes after a win, before the results, only when a server is set up', () => {
+    const s = stats(played(99)); // the win makes it 100
     const dealer = () => ({ seed: 9, verified: true });
-    const fresh = (canShare: boolean) => createApp(deal(1), { verified: true, stats: s, canShare });
-    const newGame = (app: ReturnType<typeof fresh>) => ['escape', 'down', 'enter'].reduce((a, k, i) => handleKey(a, k, 1_000 * (i + 1), dealer), app);
-    // A new deal brings it up; without a server, never.
-    const asked = newGame(fresh(true));
+    const endgame = board({
+      foundations: ['AS 2S 3S 4S 5S 6S 7S 8S 9S XS JS QS', 'AH 2H 3H 4H 5H 6H 7H 8H 9H XH JH QH KH', 'AD 2D 3D 4D 5D 6D 7D 8D 9D XD JD QD KD', 'AC 2C 3C 4C 5C 6C 7C 8C 9C XC JC QC KC'],
+      tableau: ['| KS'],
+    });
+    /** Wins, then lets the ceremony run out on its own. */
+    const win = (canShare: boolean) => {
+      let app = handleKey(createApp(endgame, { verified: true, stats: s, canShare }), 'i', 1_000, dealer); // K♠ home
+      assert.ok(app.finishedAt !== undefined);
+      app = stampDialog(app, tick(app, app.finishedAt! + CEREMONY_MS), app.finishedAt! + CEREMONY_MS);
+      return app;
+    };
+    const asked = win(true);
     assert.equal(asked.dialog, 'share');
-    assert.match(viewOf(asked, 0).dialog!.title, /100 games played!/);
-    assert.equal(newGame(fresh(false)).dialog, undefined);
+    assert.match(viewOf(asked, 0).dialog!.title, /You won, and that makes 100 games!/);
+    assert.ok(viewOf(asked, asked.finishedAt! + CEREMONY_MS + 100).celebration! > 0); // the confetti keeps falling
+    assert.equal(win(false).dialog, 'won');
+    // A new deal never asks, nor does the start of one.
+    const fresh = createApp(deal(1), { verified: true, stats: s, canShare: true });
+    assert.equal(['escape', 'down', 'enter'].reduce((a, k, i) => handleKey(a, k, 1_000 * (i + 1), dealer), fresh).dialog, undefined);
     // Straight after it comes up, enter is taken as meant for the board.
-    assert.equal(handleKey(asked, 'enter', 3_100, dealer).dialog, 'share');
-    for (const yes of ['enter', 'space']) assert.equal(handleKey(asked, yes, 10_000, dealer).stats.share!.pending, true, yes);
-    const no = handleKey(asked, 'escape', 10_000, dealer);
+    const at = asked.dialogAt!;
+    assert.equal(handleKey(asked, 'enter', at + 100, dealer).dialog, 'share');
+    for (const yes of ['enter', 'space']) {
+      const sent = handleKey(asked, yes, at + 5_000, dealer);
+      assert.equal(sent.stats.share!.pending, true, yes);
+      assert.equal(sent.dialog, 'won', yes); // then the results
+    }
+    const no = handleKey(asked, 'escape', at + 5_000, dealer);
     assert.equal(no.stats.share!.pending, false);
+    assert.equal(no.dialog, 'won');
     assert.match(no.message, /asked again at 200 games/);
-    assert.equal(no.game, asked.game); // answering does not deal again
     // Sent: the games are marked, and a line for the log says which.
-    const sent = applyShared(handleKey(asked, 'enter', 10_000, dealer), ids(s.games));
-    assert.equal(unsent(sent.stats).length, 0);
+    const sent = applyShared(handleKey(asked, 'enter', at + 5_000, dealer), ids(s.games));
+    assert.equal(unsent(sent.stats).filter((g) => s.games.includes(g)).length, 0);
     assert.deepEqual(sent.outbox.at(-1), { sent: ids(s.games) });
   });
 });
