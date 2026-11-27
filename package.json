@@ -1,6 +1,6 @@
 {
   "name": "soliterminal",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "description": "Klondike solitaire in the terminal with a built-in solver: every deal is winnable, and it tells you the moment a game no longer is.",
   "keywords": [
     "solitaire",
