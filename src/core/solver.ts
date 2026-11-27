@@ -494,9 +494,39 @@ export function solve(state: KlondikeState, options: SolveOptions = {}): SolveRe
 }
 
 /**
+ * A faster search to use in place of the one below: given the packed position
+ * and the budget, the same answer the search here would give, with the moves
+ * still encoded. See `solver-wasm.ts`.
+ */
+export type Engine = (
+  root: Uint8Array,
+  columns: number,
+  drawMode: DrawMode,
+  maxNodes: number,
+  timeLimitMs: number,
+  exhaustive: boolean,
+) => { readonly status: SolveResult['status']; readonly nodes: number; readonly moves: readonly number[] };
+
+/** What an engine is built to hold; anything larger (only hand-built boards are) is searched here. */
+export const ENGINE_LIMITS = { columns: 7, column: 20, talon: 24 } as const;
+
+let engine: Engine | undefined;
+/** Sets the engine every search from now on uses, or with `undefined` goes back to the search in this file. */
+export function useEngine(e: Engine | undefined): void {
+  engine = e;
+}
+
+function fitsEngine(s: S): boolean {
+  return s.cols.length <= ENGINE_LIMITS.columns && s.talon.length <= ENGINE_LIMITS.talon && s.cols.every((c) => c.length <= ENGINE_LIMITS.column);
+}
+
+/**
  * Best-first search: always expands the most promising position seen so far,
  * so one bad early choice cannot swallow the whole budget the way it can in a
  * plain depth-first search.
+ *
+ * This is the reference. The engine, when one is set, is the same search
+ * written for speed, and a test holds the two to the same answers.
  */
 function search(state: KlondikeState, options: SolveOptions): SolveResult {
   const maxNodes = options.maxNodes ?? MAX_NODES;
@@ -504,6 +534,14 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
   const deadline = start + (options.timeLimitMs ?? TIME_LIMIT_MS);
   const drawMode = state.drawMode;
   const columns = state.tableau.length;
+  if (engine) {
+    const position = fromGame(state);
+    if (fitsEngine(position)) {
+      const r = engine(pack(position), columns, drawMode, maxNodes, options.timeLimitMs ?? TIME_LIMIT_MS, options.exhaustive ?? false);
+      const ms = Date.now() - start;
+      return r.status === 'solved' ? { status: 'solved', moves: r.moves.map(decode), nodes: r.nodes, ms } : { status: r.status, nodes: r.nodes, ms };
+    }
+  }
   /**
    * Positions already queued, with the most redeals any of them had left. The
    * same position with more redeals left can do everything one with fewer can,
@@ -671,13 +709,17 @@ export interface Judgement {
  * Whether a position can still be won. `lost` is only returned when an
  * exhaustive search proves it, so the player is never told they lost when
  * they have not. `winnable` is backed by a replayed solution.
+ *
+ * The node budgets are sized for the WebAssembly engine, which gets through
+ * them in about the time allowed. The search in this file is several times
+ * slower and simply stops at the time limit, having seen what it used to.
  */
 export function judge(state: KlondikeState, options: JudgeOptions = {}): Judgement {
   const start = Date.now();
-  const quick = isSolvable(state, { maxNodes: 50_000, timeLimitMs: 1_000, ...options.quick });
+  const quick = isSolvable(state, { maxNodes: 300_000, timeLimitMs: 1_000, ...options.quick });
   if (quick.status === 'solved') return { verdict: 'winnable', ms: Date.now() - start, next: quick.moves[0] };
   if (quick.status === 'unknown' && !options.thorough) return { verdict: 'unclear', ms: Date.now() - start };
-  const sure = isSolvable(state, { maxNodes: 300_000, timeLimitMs: 3_000, ...options.confirm, exhaustive: true });
+  const sure = isSolvable(state, { maxNodes: 1_500_000, timeLimitMs: 3_000, ...options.confirm, exhaustive: true });
   if (sure.status === 'solved') return { verdict: 'winnable', ms: Date.now() - start, next: sure.moves[0] };
   return { verdict: sure.status === 'unsolvable' ? 'lost' : 'unclear', ms: Date.now() - start };
 }
@@ -688,8 +730,8 @@ export function judge(state: KlondikeState, options: JudgeOptions = {}): Judgeme
  */
 export function judgeDeeply(state: KlondikeState): Judgement {
   return judge(state, {
-    quick: { maxNodes: 400_000, timeLimitMs: 6_000 },
-    confirm: { maxNodes: 800_000, timeLimitMs: 12_000 },
+    quick: { maxNodes: 2_000_000, timeLimitMs: 6_000 },
+    confirm: { maxNodes: 4_000_000, timeLimitMs: 12_000 },
     thorough: true,
   });
 }

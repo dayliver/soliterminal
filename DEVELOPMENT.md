@@ -11,14 +11,16 @@ npm install      # TypeScript and Node types, for type checking only
 npm start        # play from source (Node 22.18+ runs the .ts files directly)
 npm run check    # type check and run the tests
 npm run build    # compile to dist/ for the npm package
+npm run build:wasm   # rebuild src/solver.wasm from solver/ (needs Rust with the wasm32-unknown-unknown target)
 npm run preview  # print one static frame
 npm run peek     # show the game in progress and whether it can still be won
-node scripts/solver-stats.ts --count 200 --draw 1   # how many deals the solver decides, and how fast
+node scripts/solver-stats.ts --count 200 --draw 1   # how many deals the solver decides, and how fast (--js for the TypeScript search)
 ```
 
 `npm publish` runs `check` and `build` first (`prepublishOnly`). The package
 ships only `dist/` and the two READMEs. Nothing at runtime depends on another
-package.
+package. `src/solver.wasm` is checked in, so only changing the Rust in `solver/`
+needs a Rust toolchain; `build` copies it into `dist/`.
 
 ## Layout
 
@@ -29,6 +31,7 @@ package.
 | `src/ui/` | Key input, the key map, the layout that draws a `View` into a screen buffer, and the diff that writes only changed cells to the terminal. |
 | `src/cli.ts` | The runner. It owns the terminal, timers, files and solver workers, and feeds their results into the state machine. |
 | `src/solver-client.ts`, `src/solver-worker.ts` | Solver lanes on `worker_threads`. Each lane takes one job at a time. A newer job cancels an older one, and a lane whose worker crashes or runs out of memory (1 GB cap) is replaced, its job answered as undecided. |
+| `solver/`, `src/solver.wasm`, `src/solver-wasm.ts` | The solver's search in Rust, the WebAssembly built from it, and the loader that hands it to `core/solver.ts` as its engine. |
 | `src/stats.ts`, `src/stats-file.ts` | Statistics as an event log, and the files they live in. |
 | `src/saved-game.ts` | The game in progress: the deal plus the steps between positions, replayed on load. |
 | `src/share.ts`, `server/` | Sharing results, and the Cloudflare Worker that receives them. |
@@ -50,6 +53,23 @@ or `%LOCALAPPDATA%\soliterminal`):
   temporary file.
 - An older `stats.json` is moved into the log once, only when there is no log
   yet. Its unfinished games are dropped, and the old file is left in place.
+
+**The search exists twice.** `search` in `core/solver.ts` is the reference.
+`solver/src/lib.rs` is the same search in Rust, compiled to WebAssembly with no
+bindings generator and no dependencies: the same moves in the same order, the
+same scores, the same budget checks. With the same node budget the two visit
+the same positions and return the same moves, and `test/solver-wasm.test.ts`
+holds them to it, so a change to one has to be made in the other. Everything
+around the search (the relaxed pass before proving a loss, replaying each
+solution through the real rules, judging, rating) stays in TypeScript and is
+shared. The engine is about six times faster and takes about 125 bytes per
+position (590 MB for five million); it stops unanswered at 1 GB, and it is
+dropped and started afresh after any search that grew past 64 MB, because
+WebAssembly memory never shrinks. Positions are told apart by a 128-bit hash
+rather than the whole key. If `solver.wasm` cannot be loaded, or a hand-built
+board is larger than the engine holds (`ENGINE_LIMITS`), the TypeScript search
+runs instead. The judging budgets are sized for the engine; the TypeScript
+search just reaches its time limits first.
 
 **Statistics are written only when a game ends.** A win, a proven loss, or
 giving up counts as an end. Starting another deal or a seed over a game in
@@ -162,7 +182,7 @@ The review checked its changes in four ways:
 
 | Item | Notes |
 |---|---|
-| Undecided deals | With the default budget (300,000 nodes, 5 s, 3 redeals) the solver leaves Draw 1 seeds 1-150 undecided 22.0% of the time (76.7% solved, 1.3% lost, median 74 ms). For Draw 3 seeds 1-100 it is 10.0% (69.0% solved, 21.0% lost, median 117 ms). These are measured before the review, and the search did not change. Improving the search is research, not cleanup. |
+| Undecided deals | Measured 2026-11-27 on fresh deals with 3 redeals. One search with the default budget (300,000 nodes, 5 s) leaves Draw 1 seeds 1-100 undecided 21% of the time (77% solved, 2% lost), the same in either engine, in 17 s for the hundred with WebAssembly against 113 s; with 2,000,000 nodes it is 14%. What the game says about a deal (the live judge, then the deep one): Draw 1 seeds 1-60 are settled live for 49 and left unclear for 7; before the engine and its larger budgets it was 40 and 11. Draw 3 seeds 1-40: 36 live and 3 unclear, before 30 and 4. The rest are mostly deals that cannot be won and are too large to prove so: a faster search does not reach them, a better one might (stronger pruning that stays exact, or a tighter position key). |
 | Worker crash handling | It has been checked only by scratch scripts. There is no automated test. |
 | Ctrl+Q in VS Code / Cursor | Not checked whether the editor takes the key first. If it does, say in the README to use Ctrl+C there. |
 | Saving by working out steps | Each save finds the step between every pair of positions (`stepBetween`). Recording the step as each move is made would remove that, but changes the shape of `App`. |

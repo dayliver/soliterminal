@@ -30,6 +30,7 @@ import { randomSeed } from './core/deck.ts';
 import { DEFAULT_REDEALS, type DrawMode, type KlondikeState, deal, positionKey, successors } from './core/klondike.ts';
 import { findWinnableSeed } from './core/solver.ts';
 import { SolverClient } from './solver-client.ts';
+import { installWasmEngine } from './solver-wasm.ts';
 import { ansi, diff } from './ui/ansi.ts';
 import { loadSavedGame, removeSavedGame, replaySaved, savedGamePath, snapshot, writeSavedGame } from './saved-game.ts';
 import { type GameRecord, type ShareState, type Stats, pastGame, unrated } from './stats.ts';
@@ -42,6 +43,9 @@ import type { ScreenBuffer } from './ui/screen.ts';
 import { ACCENTS, isAccent, pickTheme } from './ui/theme.ts';
 
 const AUTO_STEP_MS = 60;
+/** The first deal is searched for on this thread; the workers load the engine themselves. */
+installWasmEngine();
+
 /** Winnable deals kept ready per draw mode, so a new game never has to wait. */
 const DEALS_AHEAD = 2;
 

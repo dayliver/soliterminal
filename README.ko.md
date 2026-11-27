@@ -323,11 +323,13 @@ npm install      # 타입 검사용 TypeScript와 Node 타입
 npm start        # 소스에서 바로 실행 (Node 22.18+는 .ts 파일을 그대로 실행)
 npm run check    # 타입 검사와 테스트
 npm run build    # npm 패키지용으로 dist/에 컴파일
+npm run build:wasm  # solver/의 솔버 엔진 다시 빌드 (Rust 필요)
 npm run preview  # 정지 화면 한 장 출력
 npm run peek     # 진행 중인 게임과 아직 이길 수 있는지 보기
 ```
 
-실행에 필요한 의존성은 없습니다. 코드 구조와 설계 결정, 공유 서버, 남은 과제는
+실행에 필요한 의존성은 없습니다. 솔버의 탐색은 Rust를 WebAssembly로 컴파일한 작은
+파일 하나로 함께 들어 있습니다. 코드 구조와 설계 결정, 공유 서버, 남은 과제는
 [DEVELOPMENT.md](DEVELOPMENT.md)(영어)에 정리해 두었습니다.
 
 ## 라이선스

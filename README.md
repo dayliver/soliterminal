@@ -337,11 +337,13 @@ npm install      # TypeScript and Node types, for type checking only
 npm start        # play from source (Node 22.18+ runs the .ts files directly)
 npm run check    # type check and run the tests
 npm run build    # compile to dist/ for the npm package
+npm run build:wasm  # rebuild the solver engine from solver/ (needs Rust)
 npm run preview  # print one static frame
 npm run peek     # show the game in progress and whether it can still be won
 ```
 
-The game has no runtime dependencies. How the code is laid out, the decisions
+The game has no runtime dependencies. The solver's search is Rust compiled to
+WebAssembly, shipped as one small file. How the code is laid out, the decisions
 behind it, the share server and what is still open are in
 [DEVELOPMENT.md](DEVELOPMENT.md).
 

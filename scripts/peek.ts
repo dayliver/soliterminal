@@ -7,6 +7,9 @@
 import { parseArgs } from 'node:util';
 import { createApp, viewOf } from '../src/app.ts';
 import { judge } from '../src/core/solver.ts';
+import { installWasmEngine } from '../src/solver-wasm.ts';
+
+installWasmEngine();
 import { loadSavedGame, replaySaved, savedGamePath } from '../src/saved-game.ts';
 import { statsPath } from '../src/stats-file.ts';
 import { formatTime } from '../src/ui/help.ts';

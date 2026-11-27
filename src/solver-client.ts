@@ -3,7 +3,10 @@ import type { DrawMode, KlondikeState } from './core/klondike.ts';
 import type { Level, SolverMove, Verdict } from './core/solver.ts';
 import type { WorkerAnswer, WorkerRequest } from './solver-worker.ts';
 
-/** Heap for one solver worker. Searches stop by node count well before this. */
+/**
+ * JavaScript heap for one solver worker, which bounds the TypeScript search.
+ * The WebAssembly engine's memory is outside it and has its own limit (see solver-wasm.ts).
+ */
 const WORKER_MEMORY_MB = 1024;
 
 /** A request and what to do with its answer, which is `undefined` when the worker failed before giving one. */

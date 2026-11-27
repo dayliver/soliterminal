@@ -35,7 +35,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/solver.wasm dist/",
+    "build:wasm": "cargo build --release --target wasm32-unknown-unknown --manifest-path solver/Cargo.toml && cp solver/target/wasm32-unknown-unknown/release/soliterminal_solver.wasm src/solver.wasm",
     "test": "node --test \"test/**/*.test.ts\"",
     "start": "node src/cli.ts",
     "preview": "node src/preview.ts",
