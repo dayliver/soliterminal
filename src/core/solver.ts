@@ -352,10 +352,9 @@ function generate(s: S, drawMode: DrawMode, exhaustive: boolean): M[] {
 function key(s: S, drawMode: DrawMode): string {
   // Column order does not matter for whether a position can be won.
   const cols = s.cols.map((c, i) => String.fromCharCode(65 + s.down[i]!, ...c.map((x) => 48 + x))).sort();
-  // With no redeal limit, every Draw 1 talon card is always reachable, so the pointer is
-  // irrelevant. With a limit, cards behind the pointer cost a redeal, so it matters.
-  // Redeals left are not part of the key: see `better` in `solve`.
-  const pos = s.left === UNLIMITED && drawMode === 1 ? '' : String.fromCharCode(48 + s.pos);
+  // In Draw 3 the pointer decides which talon cards can be reached. In Draw 1 it only decides
+  // what they cost in redeals, which like the redeals left is not part of the key: see `reserve`.
+  const pos = drawMode === 1 ? '' : String.fromCharCode(48 + s.pos);
   return String.fromCharCode(...s.found.map((f) => 48 + f)) + pos + String.fromCharCode(...s.talon.map((x) => 48 + x)) + '|' + cols.join('|');
 }
 
@@ -415,6 +414,17 @@ function decode(x: number): SolverMove {
   const from: MoveSource = fk === 0 ? { kind: 'talon' } : fk === 1 ? { kind: 'tableau', index: fi } : { kind: 'foundation' };
   const to: MoveTarget = (x >> 5) & 1 ? { kind: 'tableau', index: ti } : { kind: 'foundation' };
   return { from, to, card: toCard((x >> 9) & 63), count: x >> 15 };
+}
+
+/**
+ * What a position has in hand to reach its talon cards with, as a number that
+ * is larger when it has more. Of two positions with the same cards in the same
+ * places, the one with more can do everything the other can: more redeals left
+ * always, and in Draw 1 with the same redeals, fewer cards turned, because
+ * turning cards is free and gets it to where the other is.
+ */
+function reserve(s: S, drawMode: DrawMode): number {
+  return drawMode === 1 && s.left !== UNLIMITED ? s.left * 64 + 63 - s.pos : s.left;
 }
 
 /** How promising a position looks. Hidden cards are the main obstacle. */
@@ -647,15 +657,14 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
     }
   }
   /**
-   * Positions already queued, with the most redeals any of them had left. The
-   * same position with more redeals left can do everything one with fewer can,
-   * so it is only worth another look with more.
+   * Positions already queued, with the largest `reserve` any of them had: the
+   * same position is only worth another look with more.
    */
   const seen = new Map<string, number>();
-  const better = (k: string, left: number) => {
+  const better = (k: string, has: number) => {
     const had = seen.get(k);
-    if (had !== undefined && had >= left) return false;
-    seen.set(k, left);
+    if (had !== undefined && had >= has) return false;
+    seen.set(k, has);
     return true;
   };
   const parents: number[] = [];
@@ -713,7 +722,7 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
   playSafe(root, rootSteps);
   if (finished(root, rootSteps)) return { status: 'solved', moves: rootSteps.map(decode), nodes: 1, ms: Date.now() - start };
   if (dead(root)) return { status: 'unsolvable', nodes: 1, ms: Date.now() - start };
-  better(key(root, drawMode), root.left);
+  better(key(root, drawMode), reserve(root, drawMode));
   parents.push(-1);
   steps.push(rootSteps);
   packed.push(pack(root));
@@ -731,7 +740,7 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
       if (finished(child, out)) {
         return { status: 'solved', moves: solution(id, out), nodes: parents.length, ms: Date.now() - start };
       }
-      if (!better(key(child, drawMode), child.left)) continue;
+      if (!better(key(child, drawMode), reserve(child, drawMode))) continue;
       if (dead(child)) continue;
       if (parents.length >= maxNodes || ((parents.length & 1023) === 0 && (Date.now() > deadline || outOfRoom()))) return done('unknown');
       parents.push(id);

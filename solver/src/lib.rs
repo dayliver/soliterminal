@@ -159,6 +159,15 @@ impl S {
         }
     }
 
+    /// See `reserve` in solver.ts: what the position has in hand to reach its talon cards with.
+    fn reserve(&self, draw: u8) -> u16 {
+        if draw == 1 && self.left != UNLIMITED {
+            self.left as u16 * 64 + 63 - self.pos as u16
+        } else {
+            self.left as u16
+        }
+    }
+
     /// How promising a position looks. Hidden cards are the main obstacle.
     fn score(&self) -> i32 {
         let home: i32 = self.found.iter().map(|&f| f as i32).sum();
@@ -169,11 +178,11 @@ impl S {
 
     /// The position as bytes that are equal exactly when two positions are the
     /// same for the search: column order does not matter, nor does the talon
-    /// pointer in Draw 1 without a redeal limit. Redeals left are not part of it.
+    /// pointer in Draw 1. Redeals left are not part of it: see `reserve`.
     fn key(&self, draw: u8, out: &mut Vec<u8>) {
         out.clear();
         out.extend_from_slice(&self.found);
-        out.push(if self.left == UNLIMITED && draw == 1 { 255 } else { self.pos });
+        out.push(if draw == 1 { 255 } else { self.pos });
         out.push(self.tlen);
         out.extend_from_slice(&self.talon[..self.tlen as usize]);
         let n = self.n as usize;
@@ -551,10 +560,10 @@ fn hash(bytes: &[u8]) -> (u64, u64) {
     }
 }
 
-/// Positions already queued, with the most redeals any of them had left.
+/// Positions already queued, with the largest reserve any of them had.
 struct Seen {
     keys: Vec<(u64, u64)>,
-    left: Vec<u8>,
+    left: Vec<u16>,
     used: usize,
 }
 
@@ -563,9 +572,8 @@ impl Seen {
         Seen { keys: vec![(0, 0); 1 << 12], left: vec![0; 1 << 12], used: 0 }
     }
 
-    /// True when this position is new, or comes with more redeals left than
-    /// before: the same position with more can do everything one with fewer can.
-    fn better(&mut self, h: (u64, u64), left: u8) -> bool {
+    /// True when this position is new, or comes with a larger reserve than before.
+    fn better(&mut self, h: (u64, u64), left: u16) -> bool {
         let mask = self.keys.len() - 1;
         let mut i = h.0 as usize & mask;
         loop {
@@ -722,7 +730,7 @@ fn search(root_bytes: &[u8], n: usize, draw: u8, max_nodes: f64, time_limit_ms: 
         return Answer { status: UNSOLVABLE, nodes: 1, moves: Vec::new() };
     }
     root.key(draw, &mut key);
-    seen.better(hash(&key), root.left);
+    seen.better(hash(&key), root.reserve(draw));
     parents.push(u32::MAX);
     steps.extend_from_slice(&out);
     step_at.push(steps.len() as u32);
@@ -753,7 +761,7 @@ fn search(root_bytes: &[u8], n: usize, draw: u8, max_nodes: f64, time_limit_ms: 
                 return Answer { status: SOLVED, nodes: parents.len() as u32, moves: chain };
             }
             child.key(draw, &mut key);
-            if !seen.better(hash(&key), child.left) {
+            if !seen.better(hash(&key), child.reserve(draw)) {
                 continue;
             }
             if dead(&child) {
