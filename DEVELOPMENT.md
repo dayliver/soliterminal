@@ -59,10 +59,14 @@ or `%LOCALAPPDATA%\soliterminal`):
 bindings generator and no dependencies: the same moves in the same order, the
 same scores, the same budget checks. With the same node budget the two visit
 the same positions and return the same moves, and `test/solver-wasm.test.ts`
-holds them to it, so a change to one has to be made in the other. Everything
-around the search (the relaxed pass before proving a loss, replaying each
-solution through the real rules, judging, rating) stays in TypeScript and is
-shared. The engine is about six times faster and takes about 125 bytes per
+holds them to it, so a change to one has to be made in the other. That includes
+`dead`, the check that drops a position without searching it when some card can
+never reach its foundation, and the pruning kept even when proving a loss: it
+leaves out only moves a winnable game can do without, so `lost` stays a proof.
+Everything around the search (proving a loss in three passes: a short look with
+the redeal limit, most of the budget without it, the rest with it; replaying
+each solution through the real rules; judging; rating) stays in TypeScript and
+is shared. The engine is about six times faster and takes about 125 bytes per
 position (590 MB for five million); it stops unanswered at 1 GB, and it is
 dropped and started afresh after any search that grew past 64 MB, because
 WebAssembly memory never shrinks. Positions are told apart by a 128-bit hash
@@ -182,7 +186,7 @@ The review checked its changes in four ways:
 
 | Item | Notes |
 |---|---|
-| Undecided deals | Measured 2026-11-27 on fresh deals with 3 redeals. One search with the default budget (300,000 nodes, 5 s) leaves Draw 1 seeds 1-100 undecided 21% of the time (77% solved, 2% lost), the same in either engine, in 17 s for the hundred with WebAssembly against 113 s; with 2,000,000 nodes it is 14%. What the game says about a deal (the live judge, then the deep one): Draw 1 seeds 1-60 are settled live for 49 and left unclear for 7; before the engine and its larger budgets it was 40 and 11. Draw 3 seeds 1-40: 36 live and 3 unclear, before 30 and 4. The rest are mostly deals that cannot be won and are too large to prove so: a faster search does not reach them, a better one might (stronger pruning that stays exact, or a tighter position key). |
+| Undecided deals | Measured 2026-11-27 on fresh deals with 3 redeals. One search with the default budget (300,000 nodes, 5 s) leaves Draw 1 seeds 1-100 undecided 21% of the time (77% solved, 2% lost), the same in either engine, in 17 s for the hundred with WebAssembly against 113 s; with 2,000,000 nodes it is 14%. What the game says about a deal (the live judge, then the deep one): Draw 1 seeds 1-60 are settled live for 53 and left unclear for 2 (before `dead` and the exact pruning, 49 and 7; before the engine, 40 and 11). Draw 3 seeds 1-40: 37 live and 1 unclear (before 36 and 3; before the engine, 30 and 4). The rest are most likely deals that cannot be won and are too large to prove so; a tighter position key might reach them. |
 | Worker crash handling | It has been checked only by scratch scripts. There is no automated test. |
 | Ctrl+Q in VS Code / Cursor | Not checked whether the editor takes the key first. If it does, say in the README to use Ctrl+C there. |
 | Saving by working out steps | Each save finds the step between every pair of positions (`stepBetween`). Recording the step as each move is made would remove that, but changes the shape of `App`. |

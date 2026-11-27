@@ -323,6 +323,9 @@ fn generate(s: &S, draw: u8, exhaustive: bool, out: &mut Vec<(i32, M)>) {
             king_waiting = true;
         }
     }
+    if exhaustive && s.found.contains(&13) {
+        king_waiting = true;
+    }
     let first_empty = (0..n).find(|&i| s.len[i] == 0);
 
     for i in 0..n {
@@ -359,14 +362,18 @@ fn generate(s: &S, draw: u8, exhaustive: bool, out: &mut Vec<(i32, M)>) {
                         }
                     }
                 }
-                if !exhaustive {
-                    if !whole {
-                        if !s.fits_foundation(s.cols[i][len - k - 1]) {
+                if !whole {
+                    if !s.fits_foundation(s.cols[i][len - k - 1]) {
+                        if !exhaustive {
                             continue;
                         }
-                    } else if s.down[i] == 0 && s.len[j] > 0 && !king_waiting {
-                        continue;
+                        let twin = (3 - lead / 13) * 13 + lead % 13;
+                        if !usable[twin as usize] && !(s.found[suit_of(twin)] == rank_of(twin) && rank_of(twin) >= 2) {
+                            continue;
+                        }
                     }
+                } else if s.down[i] == 0 && s.len[j] > 0 && !king_waiting {
+                    continue;
                 }
                 let score = if whole {
                     if s.down[i] > 0 {
@@ -403,15 +410,112 @@ fn generate(s: &S, draw: u8, exhaustive: bool, out: &mut Vec<(i32, M)>) {
             continue;
         }
         for j in 0..n {
-            if let Some(t) = s.top(j) {
-                if can_stack(c, t) {
-                    out.push((0, M::Ft { suit, to: j as u8 }));
-                }
+            let ok = match s.top(j) {
+                None => exhaustive && Some(j) == first_empty && rank_of(c) == 13,
+                Some(t) => can_stack(c, t),
+            };
+            if ok {
+                out.push((0, M::Ft { suit, to: j as u8 }));
             }
         }
     }
     // Stable, like Array.prototype.sort: equal scores keep the order above.
     out.sort_by(|a, b| b.0.cmp(&a.0));
+}
+
+// ---------------------------------------------------------------------------
+// Positions lost without a search
+
+/// See `dead` in solver.ts: true when some card can never reach its foundation.
+///
+/// The same rules, applied to all cards at once: bit `c` of a mask is card `c`.
+fn dead(s: &S) -> bool {
+    const SUIT: u64 = (1 << 13) - 1;
+    const ALL: u64 = (1 << 52) - 1;
+    const ACES: u64 = 1 | 1 << 13 | 1 << 26 | 1 << 39;
+    const KINGS: u64 = ACES << 12;
+    const NONE: u8 = 255;
+    let n = s.n as usize;
+    let mut home: u64 = 0;
+    let mut talon: u64 = 0;
+    let mut down: u64 = 0;
+    let mut top: u64 = 0;
+    let mut bottom: u64 = 0;
+    let mut covered: u64 = 0; // cards that lie on another
+    let mut under = [NONE; 52]; // the card each of those lies on
+    let mut empty = false;
+    let mut last_home: u64 = 0; // the card on top of each foundation
+    for suit in 0..4 {
+        home |= ((1u64 << s.found[suit]) - 1) << (13 * suit);
+        last_home |= ((1u64 << s.found[suit]) >> 1) << (13 * suit);
+    }
+    let was_home = home;
+    for &c in &s.talon[..s.tlen as usize] {
+        talon |= 1 << c;
+    }
+    let mut present = home | talon;
+    for i in 0..n {
+        let len = s.len[i] as usize;
+        if len == 0 {
+            empty = true;
+            continue;
+        }
+        let col = &s.cols[i];
+        bottom |= 1 << col[0];
+        top |= 1 << col[len - 1];
+        for k in 0..len {
+            let c = col[k];
+            present |= 1 << c;
+            if k < s.down[i] as usize {
+                down |= 1 << c;
+            }
+            if k > 0 {
+                covered |= 1 << c;
+                under[c as usize] = col[k - 1];
+            }
+        }
+    }
+    if present != ALL {
+        return true;
+    }
+    loop {
+        let before = (home, top, empty);
+        // Cards that a card on top would take: one rank lower, of the other color.
+        let p = (top >> 1) & !KINGS;
+        let black = (p & SUIT) | (p >> 39 & SUIT);
+        let red = (p >> 13 & SUIT) | (p >> 26 & SUIT);
+        let landing = red | black << 13 | black << 26 | red << 39;
+        // From the talon, or from a foundation once the card above it there has come down.
+        top |= (talon | was_home & (last_home | p)) & (landing | if empty { KINGS } else { 0 });
+        // Tableau cards that can leave where they lie: turned, with somewhere to go.
+        let turned = !down | top;
+        let leave = turned & (home | landing);
+        if leave & bottom != 0 {
+            empty = true;
+        }
+        let mut go = (leave | if empty { turned & KINGS } else { 0 }) & covered;
+        covered &= !go;
+        while go != 0 {
+            let x = go.trailing_zeros() as usize;
+            go &= go - 1;
+            top |= 1 << under[x];
+        }
+        // Up each suit as far as the cards are in hand.
+        let ready = talon | top;
+        loop {
+            let next = home | (((home << 1) & !ACES) | ACES) & ready;
+            if next == home {
+                break;
+            }
+            home = next;
+        }
+        if home == ALL {
+            return false;
+        }
+        if (home, top, empty) == before {
+            return true;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -614,6 +718,9 @@ fn search(root_bytes: &[u8], n: usize, draw: u8, max_nodes: f64, time_limit_ms: 
     if finished(&mut root, &mut out) {
         return Answer { status: SOLVED, nodes: 1, moves: out };
     }
+    if dead(&root) {
+        return Answer { status: UNSOLVABLE, nodes: 1, moves: Vec::new() };
+    }
     root.key(draw, &mut key);
     seen.better(hash(&key), root.left);
     parents.push(u32::MAX);
@@ -647,6 +754,9 @@ fn search(root_bytes: &[u8], n: usize, draw: u8, max_nodes: f64, time_limit_ms: 
             }
             child.key(draw, &mut key);
             if !seen.better(hash(&key), child.left) {
+                continue;
+            }
+            if dead(&child) {
                 continue;
             }
             let count = parents.len();

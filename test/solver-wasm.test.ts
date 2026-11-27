@@ -93,7 +93,7 @@ describe('the WebAssembly search', () => {
   test('stops at the time limit', () => {
     installWasmEngine();
     const started = Date.now();
-    const r = solve(deal(3, 1, Infinity), { maxNodes: 50_000_000, timeLimitMs: 150, exhaustive: true });
+    const r = solve(deal(27, 1, Infinity), { maxNodes: 50_000_000, timeLimitMs: 150, exhaustive: true });
     assert.equal(r.status, 'unknown');
     assert.ok(Date.now() - started < 1_500, `took ${Date.now() - started}ms`);
   });

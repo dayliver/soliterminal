@@ -247,11 +247,13 @@ function apply(s: S, m: M): void {
 /**
  * Candidate moves, most promising first.
  *
- * Some moves are always left out because they provably change nothing: a
- * second empty column, a king already at the bottom moving to an empty column,
- * an ace leaving its foundation, or drawing without playing. Unless
- * `exhaustive`, moves that merely look pointless are dropped too; that costs
- * coverage but never correctness, since every solution is replayed.
+ * Some moves are always left out because a game that can be won can be won
+ * without them: a second empty column, a king already at the bottom moving to
+ * an empty column, an ace leaving its foundation, drawing without playing,
+ * emptying a column no king is waiting for, and splitting a run when nothing
+ * can make use of the card uncovered. Unless `exhaustive`, moves that merely
+ * look pointless are dropped too; that costs coverage but never correctness,
+ * since every solution is replayed.
  */
 function generate(s: S, drawMode: DrawMode, exhaustive: boolean): M[] {
   const scored: { m: M; score: number }[] = [];
@@ -277,6 +279,8 @@ function generate(s: S, drawMode: DrawMode, exhaustive: boolean): M[] {
     usable[s.talon[p - 1]!] = true;
     if (rankOf(s.talon[p - 1]!) === 13) kingWaiting = true;
   }
+  // A king can come back from a finished foundation too; rarely the way to win, so only a proof looks at it.
+  if (exhaustive && s.found.includes(13)) kingWaiting = true;
   // Only the first empty column is offered: empty columns are interchangeable.
   const firstEmpty = s.cols.findIndex((c) => c.length === 0);
 
@@ -301,13 +305,20 @@ function generate(s: S, drawMode: DrawMode, exhaustive: boolean): M[] {
           // A king run already at the bottom of its column gains nothing from moving.
           if (j !== firstEmpty || rankOf(lead) !== 13 || (whole && s.down[i] === 0)) continue;
         } else if (!canStack(lead, dest.at(-1)!)) continue;
-        if (!exhaustive) {
-          if (!whole) {
-            // Splitting a run usually only helps if the card it uncovers can then go home.
-            if (!fitsFoundation(s, col[col.length - k - 1]!)) continue;
-          } else if (s.down[i] === 0 && dest.length > 0 && !kingWaiting) {
-            continue; // emptying a column is usually only worth it if a king needs the space
+        if (!whole) {
+          // Splitting a run uncovers a card, which helps only once that card goes home or the
+          // lead's twin (same rank and color) is put on it; until then the run could as well
+          // have stayed. So the twin has to be at hand, and unless `exhaustive`, the card must
+          // be able to go home.
+          if (!fitsFoundation(s, col[col.length - k - 1]!)) {
+            if (!exhaustive) continue;
+            const twin = (3 - suitOf(lead)) * 13 + (lead % 13);
+            if (!usable[twin] && !(s.found[suitOf(twin)] === rankOf(twin) && rankOf(twin) >= 2)) continue;
           }
+        } else if (s.down[i] === 0 && dest.length > 0 && !kingWaiting) {
+          // Emptying a column gains only the space, and only a king can use it: the move can
+          // wait until one is there to take it.
+          continue;
         }
         const score = whole ? (s.down[i]! > 0 ? 60 + s.down[i]! : 20) : 10;
         add({ t: 'tt', from: i, to: j, count: k }, score);
@@ -331,7 +342,7 @@ function generate(s: S, drawMode: DrawMode, exhaustive: boolean): M[] {
     if (!exhaustive && !below.some((x) => usable[x])) continue;
     for (let j = 0; j < n; j++) {
       const top = s.cols[j]!.at(-1);
-      if (top !== undefined && canStack(c, top)) add({ t: 'ft', suit, to: j }, 0);
+      if (top === undefined ? exhaustive && j === firstEmpty && rankOf(c) === 13 : canStack(c, top)) add({ t: 'ft', suit, to: j }, 0);
     }
   }
   scored.sort((a, b) => b.score - a.score);
@@ -417,6 +428,89 @@ function score(s: S): number {
   return home * 2 - hidden * 6 - s.talon.length + spare;
 }
 
+/**
+ * True when the position can be shown lost without searching: some card can
+ * never reach its foundation, whatever is played.
+ *
+ * It works out which things can ever happen, erring on the side of "can":
+ * `home[c]`, card c reaches its foundation, and `top[c]`, c lies face up on
+ * the tableau with nothing on it. A talon card counts as always in hand. Each
+ * event needs earlier ones:
+ *
+ * - c goes home once the card below it in suit has, and c is on top (or in the talon);
+ * - a card is uncovered once the card lying on it leaves, and that one leaves
+ *   only by going home, onto another card that is on top, or as a king to an
+ *   empty column;
+ * - a card from the talon or a foundation lands on a card that is on top, or as a king on an
+ *   empty column, and one from a foundation only after the cards above it there have come down;
+ * - a column empties once its bottom card leaves.
+ *
+ * Whatever does happen in a real game happens for one of these reasons, by
+ * something that happened before it, so everything possible is found by
+ * applying the rules until nothing new comes out. A card left without `home`
+ * is stuck for good: typically cards that wait for one another in a circle,
+ * which a search would otherwise have to play every other card around to see.
+ */
+function dead(s: S): boolean {
+  const HOME = 0, TALON = 1, UP = 2, DOWN = 3, MISSING = 4;
+  const where = new Uint8Array(52).fill(MISSING);
+  const above = new Int8Array(52).fill(-1); // the card lying on each tableau card
+  const home = new Uint8Array(52);
+  const top = new Uint8Array(52);
+  let empty = false;
+  for (let suit = 0; suit < 4; suit++) {
+    for (let r = 0; r < s.found[suit]!; r++) {
+      where[suit * 13 + r] = HOME;
+      home[suit * 13 + r] = 1;
+    }
+  }
+  for (const c of s.talon) where[c] = TALON;
+  for (let i = 0; i < s.cols.length; i++) {
+    const col = s.cols[i]!;
+    if (col.length === 0) empty = true;
+    for (let k = 0; k < col.length; k++) {
+      where[col[k]!] = k < s.down[i]! ? DOWN : UP;
+      if (k + 1 < col.length) above[col[k]!] = col[k + 1]!;
+      else top[col[k]!] = 1;
+    }
+  }
+  /** Whether a card that `c` can be put on is ever on top. */
+  const landing = (c: number) => {
+    const r = c % 13;
+    if (r === 12) return false;
+    return isRed(c) ? top[r + 1] === 1 || top[39 + r + 1] === 1 : top[13 + r + 1] === 1 || top[26 + r + 1] === 1;
+  };
+  /** Whether a tableau card that is turned, or ever will be, has somewhere to go from where it lies. */
+  const leaves = (x: number, onACard: boolean) =>
+    (where[x] === UP || top[x] === 1) && (home[x] === 1 || landing(x) || (x % 13 === 12 && empty && onACard));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let c = 0; c < 52; c++) {
+      const w = where[c]!;
+      if (w === MISSING) return true;
+      const lands = () => (landing(c) || (c % 13 === 12 && empty)) && (w === TALON || (c % 13) + 1 === s.found[suitOf(c)] || top[c + 1] === 1);
+      if (top[c] === 0 && (w === TALON || w === HOME ? lands() : leaves(above[c]!, true))) {
+        top[c] = 1;
+        changed = true;
+      }
+      if (home[c] === 0 && (c % 13 === 0 || home[c - 1] === 1) && (w === TALON || top[c] === 1)) {
+        home[c] = 1;
+        changed = true;
+      }
+    }
+    if (!empty && s.cols.some((col) => leaves(col[0]!, false))) {
+      empty = true;
+      changed = true;
+    }
+  }
+  return home.includes(0);
+}
+
+/** Whether a game is lost for a reason that shows without searching; see {@link dead}. */
+export function isDeadEnd(state: KlondikeState): boolean {
+  return dead(fromGame(state));
+}
+
 /** Max-heap on score; among equals the newest position wins, which keeps lines of play going. */
 class Queue {
   #ids: number[] = [];
@@ -472,25 +566,35 @@ const TIME_LIMIT_MS = 5_000;
 /**
  * Solves a position.
  *
- * With a redeal limit and `exhaustive` set (proving a loss), the game is first
- * searched as if there were no limit, which is much smaller: if it cannot be
- * won even then, it cannot be won with the limit either. Solutions found that
- * way are not used, since they typically turn the deck over many times; only
- * a search that counts redeals can find one that stays within the limit.
+ * With a redeal limit and `exhaustive` set (proving a loss), the game is also
+ * searched as if there were no limit, which late in the stock is the larger
+ * search and early on by far the smaller: if it cannot be won even then, it
+ * cannot be won with the limit either. Solutions found that way are not used,
+ * since they typically turn the deck over many times; only a search that
+ * counts redeals can find one that stays within the limit. So: a short look
+ * with the limit, then most of the budget without it, then the rest with it.
  */
 export function solve(state: KlondikeState, options: SolveOptions = {}): SolveResult {
   if (!Number.isFinite(state.redealsLeft) || !options.exhaustive) return search(state, options);
   const start = Date.now();
   const maxNodes = options.maxNodes ?? MAX_NODES;
   const timeLimitMs = options.timeLimitMs ?? TIME_LIMIT_MS;
-  const relaxed = search({ ...state, redealsLeft: Infinity }, { ...options, maxNodes: maxNodes / 2, timeLimitMs: timeLimitMs / 2 });
-  if (relaxed.status === 'unsolvable') return { ...relaxed, ms: Date.now() - start };
-  const exact = search(state, {
-    ...options,
-    maxNodes: Math.max(1, maxNodes - relaxed.nodes),
-    timeLimitMs: Math.max(1, timeLimitMs - (Date.now() - start)),
-  });
-  return { ...exact, nodes: exact.nodes + relaxed.nodes, ms: Date.now() - start };
+  let nodes = 0;
+  /** A search with this share of the budget that is left. */
+  const look = (game: KlondikeState, share: number): SolveResult => {
+    const r = search(game, {
+      ...options,
+      maxNodes: Math.max(1, Math.floor((maxNodes - nodes) * share)),
+      timeLimitMs: Math.max(1, (timeLimitMs - (Date.now() - start)) * share),
+    });
+    nodes += r.nodes;
+    return { ...r, nodes, ms: Date.now() - start };
+  };
+  const glance = look(state, 1 / 8);
+  if (glance.status !== 'unknown') return glance;
+  const relaxed = look({ ...state, redealsLeft: Infinity }, 3 / 4);
+  if (relaxed.status === 'unsolvable') return relaxed;
+  return look(state, 1);
 }
 
 /**
@@ -608,6 +712,7 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
   const rootSteps: number[] = [];
   playSafe(root, rootSteps);
   if (finished(root, rootSteps)) return { status: 'solved', moves: rootSteps.map(decode), nodes: 1, ms: Date.now() - start };
+  if (dead(root)) return { status: 'unsolvable', nodes: 1, ms: Date.now() - start };
   better(key(root, drawMode), root.left);
   parents.push(-1);
   steps.push(rootSteps);
@@ -627,6 +732,7 @@ function search(state: KlondikeState, options: SolveOptions): SolveResult {
         return { status: 'solved', moves: solution(id, out), nodes: parents.length, ms: Date.now() - start };
       }
       if (!better(key(child, drawMode), child.left)) continue;
+      if (dead(child)) continue;
       if (parents.length >= maxNodes || ((parents.length & 1023) === 0 && (Date.now() > deadline || outOfRoom()))) return done('unknown');
       parents.push(id);
       steps.push(out);
